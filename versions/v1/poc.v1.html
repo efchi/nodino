@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<head>
+    <title>Nodino Demo</title>
+</head>
+<body>
+    <canvas></canvas>
+
+    <script>
+        // Main objects
+        const canvas = document.querySelector('canvas');
+        const ctx = canvas.getContext('2d');
+
+        // Cartesian plane parameters
+        let originX = null;                 // Origin location X
+        let originY = null;                 // Origin location Y
+        let pixelsPerUnit = 300;            // Node coordinates are mapped from [-1, 1] to [-pixelsPerUnit, pixelsPerUnit]px
+        let scaleX = 0.75;                  // Scale factor for nodes (X)
+        let scaleY = 0.75;                  // Scale factor for nodes (Y)
+
+        // Simulation parameters
+        // These parameters can be used to tweak the graph's visual and behavior
+        let epsilonStart = 0.001;           // Epsilon parameter: initial value (see below)
+        let epsilonMax = 0.001;             // Epsilon parameter: maximum value (see below)
+        let epsilonDelta = 0.0001;          // Epsilon increment per frame (see below)
+        let similarityThreshold = 0.4;      // Threshold under which an edge is considered a miss (included)
+        let repulsiveness = 4;              // Stress multiplier for repulsive nodes (see below)
+        let attractiveness = 1;             // Stress multiplier for attractive nodes (see below)
+
+        // Timing & control parameters
+        let stopSignal = false;             // Set true to stop the simulation
+        let initialDelay = 0;               // Initial delay after start signal in milliseconds
+        let delay = 17;                     // Refresh delay in milliseconds (17 ~ 60fps)
+
+        // Styles
+        let perimeterColor = "#000";
+        let perimeterWidth = 1;
+        let nodeColor = "#000";
+        let nodeRadius = 1;
+        let edgeWidth = 1;
+        let missWidth = 1;
+        let minEdgeAlpha = 0.08;
+        let missAlpha = 0.08;
+        let edgeColor = "255,0,127";
+        let missColor = "0,0,255";
+
+        // Functions
+
+        function Generate(nodeCount) {
+            const nodes = new Array(nodeCount);
+            const distances = new Array(nodeCount);
+
+            // Inizialize node array and distance matrix
+            for (var i = 0; i < nodeCount; i++) {
+                nodes[i] = "#" + i;
+                distances[i] = new Array(nodeCount);
+            }
+
+            // Generate random weights and distances
+            const unrelatedFactor = 0.9;
+            for (var i = 0; i < nodeCount - 1; i++) {
+                for (var j = i + 1; j < nodeCount; j++) {
+                    // simulating similarity in [-1, 1] (eg cosine)
+                    var isUnrelated = Math.random() < unrelatedFactor;
+                    var similarity = isUnrelated ? -1 : (((Math.random() * 2) - 1));
+                    var distance = 1 - similarity; // distance is in [0, 2]
+                    distances[i][j] = distance;
+                }
+            }
+            return [nodes, distances];
+        }
+
+        function Initialize(nodes, distances) {
+            // Simulation variables setup
+            const nodeCount = nodes.length;
+            const points = [];
+            const vector = [0, 0];
+            const forces = new Array(nodeCount);
+
+            for (var i = 0; i < nodeCount; i++)
+                forces[i] = [0, 0];
+
+            // Assign nodes to points in the 2d space following a circle
+            var angleStep = (2 * Math.PI) / nodeCount;
+            for (var i = 0, angle = 0; i < nodeCount; i++, angle += angleStep)
+                // [x, y] in [-1, 1]
+                points[i] = [Math.cos(angle), Math.sin(angle)];
+
+            return [nodeCount, points, vector, forces];
+        }
+
+        function Start(nodes, distances, points, vector, forces) {
+            const nodeCount = nodes.length;
+            let epsilon = epsilonStart;
+
+            // Draw for the first time
+            draw(nodeCount, points, distances);
+
+            // Simulation loop
+            function process() {
+
+                // Inizialize forces matrix
+                for (var i = 0; i < nodeCount; i++) {
+                    forces[i][0] = 0;
+                    forces[i][1] = 0;
+                }
+
+                // Updating epsilon to start slowly and accelerate up to a maximum
+                if (epsilon < epsilonMax)
+                    epsilon += epsilonDelta;
+
+                // Compute forces foreach node couple
+                for (var i = 0; i < nodeCount - 1; i++) {
+                    for (var j = i + 1; j < nodeCount; j++) {
+                        var a = points[i];
+                        var b = points[j];
+
+                        // Compute the vector that points from a to b
+                        vector[0] = b[0] - a[0];
+                        vector[1] = b[1] - a[1];
+
+                        // Computing L2 distance between the two points
+                        var currentDistance = Math.sqrt(Math.pow(a[0] - b[0], 2) + Math.pow(a[1] - b[1], 2));
+                        var optimalDistance = distances[i][j];
+
+                        // Computing Stress factor between the two points
+                        // Stress is positive if the two points are attracted, negative otherwise
+                        var stress = currentDistance - optimalDistance;
+
+                        // Used to advantage "attractivity" over "repulsiveness" and viceversa
+                        stress *= (stress < 0) ? repulsiveness : attractiveness;
+
+                        // Compute force contribution
+                        var delta = epsilon * stress;
+                        var stepX = delta * vector[0];
+                        var stepY = delta * vector[1];
+
+                        // Updating global forces on the two nodes
+                        forces[i][0] += stepX;
+                        forces[i][1] += stepY;
+                        forces[j][0] -= stepX;
+                        forces[j][1] -= stepY;
+                    }
+                }
+
+                // Updating points according to computed forces
+                for (var i = 0; i < nodeCount; i++) {
+                    points[i][0] += forces[i][0];
+                    points[i][1] += forces[i][1];
+                }
+
+                // Draw updated points
+                draw(nodeCount, points, distances);
+
+                // Schedule next frame
+                if (!stopSignal)
+                    setTimeout(process, delay);
+            }
+
+            // Start processing
+            setTimeout(process, initialDelay);
+        }
+
+        // Canvas drawing helpers
+
+        function resize() {
+            // Update canvas size and recompute origin location
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            originX = canvas.width / 2;
+            originY = canvas.height / 2;
+        }
+
+        function draw(nodeCount, points, distances) {
+            // Clear canvas and draw shapes
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawPerimeter();
+            drawEdges(nodeCount, points, distances);
+            drawNodes(nodeCount, points);
+        }
+
+        function drawPerimeter() {
+            ctx.strokeStyle = perimeterColor;
+            ctx.fillStyle = "#000";
+            ctx.lineWidth = perimeterWidth;
+            ctx.beginPath();
+            const radius = 1 * pixelsPerUnit; // circle of radius 1
+            ctx.arc(originX, originY, radius, 0, 2 * Math.PI, false);
+            ctx.stroke();
+        }
+
+        function drawNode(x, y) {
+            const rx = originX + (x * scaleX) * pixelsPerUnit;
+            const ry = originY - (y * scaleY) * pixelsPerUnit;
+            ctx.beginPath();
+            ctx.arc(rx, ry, nodeRadius, 0, 2 * Math.PI, false);
+            ctx.fill();
+        }
+
+        function drawNodes(nodeCount, points) {
+            ctx.strokeStyle = nodeColor;
+            ctx.fillStyle = nodeColor;
+            for (var i = 0; i < nodeCount; i++) {
+                const x = points[i][0];
+                const y = points[i][1];
+                drawNode(x, y);
+            }
+        }
+
+        // similarity in [-1, 1]
+        function drawEdge(ax, ay, bx, by, similarity) {
+            if (similarity <= similarityThreshold) {
+                // Style for missing relationship.
+                if (missAlpha == 0)
+                    return;
+                ctx.strokeStyle = 'rgba(' + missColor + ',' + missAlpha + ')';
+                ctx.lineWidth = missWidth;
+            }
+            else {
+                // Style for relationiship.
+                var alpha = Math.max(
+                    ((similarity + 1) / 2),
+                    minEdgeAlpha); // in [0, 1]
+                ctx.strokeStyle = 'rgba(' + edgeColor + ',' + alpha + ')';
+                ctx.lineWidth = edgeWidth;
+            }
+            ctx.beginPath();
+            const rax = originX + (ax * scaleX) * pixelsPerUnit;
+            const ray = originY - (ay * scaleY) * pixelsPerUnit;
+            ctx.moveTo(rax, ray);
+            const rbx = originX + (bx * scaleX) * pixelsPerUnit;
+            const rby = originY - (by * scaleY) * pixelsPerUnit;
+            ctx.lineTo(rbx, rby);
+            ctx.stroke();
+        }
+
+        function drawEdges(nodeCount, points, distances) {
+            for (var i = 0; i < nodeCount - 1; i++) {
+                for (var j = i + 1; j < nodeCount; j++) {
+                    const a = points[i];
+                    const b = points[j];
+                    const similarity = 1 - distances[i][j]; // in [-1, 1]
+                    drawEdge(a[0], a[1], b[0], b[1], similarity);
+                }
+            }
+        }
+    </script>
+
+    <!-- UI Html -->
+    <div id="menu">
+
+        <div class="buttons">
+            <span class="left">
+                <button id="button-generate">Generate</button>
+            </span>
+            <span class="right">
+                <button id="button-start">Run</button>
+                <button id="button-stop" hidden>Pause</button>
+            </span>
+        </div>
+
+        <div class="param">
+            <label>Node Count</label>
+            <input type="number" id="param-initialNodeCount" min="0" max="200" step="5" />
+        </div>
+
+        <hr />
+
+        <div class="param">
+            <label>Epsilon Start</label>
+            <input type="number" id="param-epsilonStart" min="0.001" max="0.01" step="0.001" />
+        </div>
+
+        <div class="param">
+            <label>Epsilon Max</label>
+            <input type="number" id="param-epsilonMax" min="0.001" max="0.01" step="0.001" />
+        </div>
+
+        <div class="param">
+            <label>Epsilon Delta</label>
+            <input type="number" id="param-epsilonDelta" min="0.0001" max="0.001" step="0.0001" />
+        </div>
+
+        <div class="param">
+            <label>Attractiveness</label>
+            <input type="number" id="param-attractiveness" min="-10" max="10" step="0.25" />
+        </div>
+
+        <div class="param">
+            <label>Repulsiveness</label>
+            <input type="number" id="param-repulsiveness" min="-10" max="10" step="0.25" />
+        </div>
+
+        <div class="param">
+            <label>Similarity Thr.</label>
+            <input type="number" id="param-similarityThreshold" min="0" max="1" step="0.05" />
+        </div>
+
+        <div class="param">
+            <label>Time Frame</label>
+            <input type="number" id="param-delay" min="5" max="1000" step="1" />
+        </div>
+
+
+        <div class="param">
+            <label>Pixels per Unit</label>
+            <input type="number" id="param-pixelsPerUnit" min="100" max="1000" step="50" />
+        </div>
+
+        <div class="param">
+            <label>Scale X</label>
+            <input type="number" id="param-scaleX" min="-10" max="10" step="0.25" />
+        </div>
+
+        <div class="param">
+            <label>Scale Y</label>
+            <input type="number" id="param-scaleY" min="-10" max="10" step="0.25" />
+        </div>
+
+        <hr />
+
+        <div class="param">
+            <label>Perimeter Width</label>
+            <input type="number" id="param-perimeterWidth" min="0" step="1" />
+        </div>
+
+        <div class="param">
+            <label>Node Radius</label>
+            <input type="number" id="param-nodeRadius" min="0" step="1" />
+        </div>
+
+        <div class="param">
+            <label>Edge Width</label>
+            <input type="number" id="param-edgeWidth" min="0" step="1" />
+        </div>
+
+        <div class="param">
+            <label>Miss Width</label>
+            <input type="number" id="param-missWidth" min="0" step="1" />
+        </div>
+
+        <div class="param">
+            <label>Min Edge Alpha</label>
+            <input type="number" id="param-minEdgeAlpha" min="0" max="1" step="0.01" />
+        </div>
+
+        <div class="param">
+            <label>Miss Alpha</label>
+            <input type="number" id="param-missAlpha" min="0" max="1" step="0.01" />
+        </div>
+
+        <div class="param">
+            <label>Perimeter Color</label>
+            <input type="text" id="param-perimeterColor" />
+        </div>
+
+        <div class="param">
+            <label>Node Color</label>
+            <input type="text" id="param-nodeColor" />
+        </div>
+
+        <div class="param">
+            <label>Edge Color</label>
+            <input type="text" id="param-edgeColor" />
+        </div>
+
+        <div class="param">
+            <label>Miss Color</label>
+            <input type="text" id="param-missColor" />
+        </div>
+    </div>
+
+    <!-- UI Logic -->
+    <script>
+
+        // Global Status
+        let initialNodeCount = 90;
+        let started = false;
+        let running = false;
+        let nodes;
+        let distances;
+        let nodeCount;
+        let points;
+        let vector;
+        let forces;
+
+        // Parameter controls & bindings
+
+        const inputNodeCount = document.getElementById('param-initialNodeCount');
+        const inputEpsilonStart = document.getElementById('param-epsilonStart');
+        const inputEpsilonMax = document.getElementById('param-epsilonMax');
+        const inputEpsilonDelta = document.getElementById('param-epsilonDelta');
+        const inputAttractiveness = document.getElementById('param-attractiveness');
+        const inputRepulsiveness = document.getElementById('param-repulsiveness');
+        const inputSimilarityThreshold = document.getElementById('param-similarityThreshold');
+        const inputDelay = document.getElementById('param-delay');
+        const inputPixelsPerUnit = document.getElementById('param-pixelsPerUnit');
+        const inputScaleX = document.getElementById('param-scaleX');
+        const inputScaleY = document.getElementById('param-scaleY');
+        const inputPerimeterWidth = document.getElementById('param-perimeterWidth');
+        const inputNodeRadius = document.getElementById('param-nodeRadius');
+        const inputEdgeWidth = document.getElementById('param-edgeWidth');
+        const inputMinEdgeAlpha = document.getElementById('param-minEdgeAlpha');
+        const inputMissWidth = document.getElementById('param-missWidth');
+        const inputMissAlpha = document.getElementById('param-missAlpha');
+        const inputPerimeterColor = document.getElementById('param-perimeterColor');
+        const inputNodeColor = document.getElementById('param-nodeColor');
+        const inputEdgeColor = document.getElementById('param-edgeColor');
+        const inputMissColor = document.getElementById('param-missColor');
+
+        inputNodeCount.value = initialNodeCount;
+        inputNodeCount.onchange = (e) => initialNodeCount = e.target.value;
+
+        inputEpsilonStart.value = epsilonStart;
+        inputEpsilonStart.onchange = (e) => epsilonStart = e.target.value;
+
+        inputEpsilonMax.value = epsilonMax;
+        inputEpsilonMax.onchange = (e) => epsilonMax = e.target.value;
+
+        inputEpsilonDelta.value = epsilonDelta;
+        inputEpsilonDelta.onchange = (e) => epsilonDelta = e.target.value;
+
+        inputAttractiveness.value = attractiveness;
+        inputAttractiveness.onchange = (e) => attractiveness = e.target.value;
+
+        inputRepulsiveness.value = repulsiveness;
+        inputRepulsiveness.onchange = (e) => repulsiveness = e.target.value;
+
+        inputSimilarityThreshold.value = similarityThreshold;
+        inputSimilarityThreshold.onchange = (e) => similarityThreshold = e.target.value;
+
+        inputDelay.value = delay;
+        inputDelay.onchange = (e) => delay = e.target.value;
+
+        inputPixelsPerUnit.value = pixelsPerUnit;
+        inputPixelsPerUnit.onchange = (e) => pixelsPerUnit = e.target.value;
+
+        inputScaleX.value = scaleX;
+        inputScaleX.onchange = (e) => scaleX = e.target.value;
+
+        inputScaleY.value = scaleY;
+        inputScaleY.onchange = (e) => scaleY = e.target.value;
+
+        inputPerimeterWidth.value = perimeterWidth;
+        inputPerimeterWidth.onchange = (e) => perimeterWidth = e.target.value;
+
+        inputNodeRadius.value = nodeRadius;
+        inputNodeRadius.onchange = (e) => nodeRadius = e.target.value;
+
+        inputEdgeWidth.value = edgeWidth;
+        inputEdgeWidth.onchange = (e) => edgeWidth = e.target.value;
+
+        inputMinEdgeAlpha.value = minEdgeAlpha;
+        inputMinEdgeAlpha.onchange = (e) => minEdgeAlpha = e.target.value;
+
+        inputMissWidth.value = missWidth;
+        inputMissWidth.onchange = (e) => missWidth = e.target.value;
+
+        inputMissAlpha.value = missAlpha;
+        inputMissAlpha.onchange = (e) => missAlpha = e.target.value;
+
+        inputPerimeterColor.value = perimeterColor;
+        inputPerimeterColor.onchange = (e) => perimeterColor = e.target.value;
+
+        inputNodeColor.value = nodeColor;
+        inputNodeColor.onchange = (e) => nodeColor = e.target.value;
+
+        inputEdgeColor.value = edgeColor;
+        inputEdgeColor.onchange = (e) => edgeColor = e.target.value;
+
+        inputMissColor.value = missColor;
+        inputMissColor.onchange = (e) => missColor = e.target.value;
+
+        // Button controls & handlers
+
+        const buttonGenerate = document.getElementById('button-generate');
+        const buttonStart = document.getElementById('button-start');
+        const buttonStop = document.getElementById('button-stop');
+
+        buttonGenerate.onclick = function () {
+            // Generate random data, set an initial location for our
+            // data points and draw for the first time
+            [nodes, distances] = Generate(initialNodeCount);
+            [nodeCount, points, vector, forces] = Initialize(nodes, distances);
+            draw(nodeCount, points, distances);
+            // Reset status
+            stopSignal = false;
+            started = false;
+            running = false;
+            // Update UI
+            inputNodeCount.disabled = started;
+            inputEpsilonStart.disabled = started;
+            inputEpsilonMax.disabled = started;
+            inputEpsilonDelta.disabled = started;
+        }
+
+        buttonStart.onclick = function () {
+            // Update status
+            stopSignal = false;
+            started = true;
+            running = true;
+            // Update UI
+            inputNodeCount.disabled = true;
+            inputEpsilonStart.disabled = true;
+            inputEpsilonMax.disabled = true;
+            inputEpsilonDelta.disabled = true;
+            buttonStart.disabled = true;
+            buttonStart.hidden = true;
+            buttonGenerate.disabled = true;
+            buttonStop.disabled = false;
+            buttonStop.hidden = false;
+            // Start simulation
+            Start(nodes, distances, points, vector, forces);
+        }
+
+        buttonStop.onclick = function () {
+            // Update status
+            stopSignal = true;
+            running = false;
+            // Update UI
+            inputNodeCount.disabled = started;
+            inputEpsilonStart.disabled = started;
+            inputEpsilonMax.disabled = started;
+            inputEpsilonDelta.disabled = started;
+            buttonStop.disabled = true;
+            buttonStop.hidden = true;
+            buttonStart.disabled = false;
+            buttonStart.hidden = false;
+            buttonGenerate.disabled = false;
+        }
+
+        // Global event listeners
+
+        window.addEventListener("resize", () => {
+            resize();
+            draw(nodes.length, points, distances);
+        });
+
+        window.addEventListener("load", function () {
+            resize();
+            // Start with a random sample
+            buttonGenerate.click();
+        });
+
+    </script>
+
+    <!-- UI Styles -->
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background-color: white;
+            font-family: sans-serif;
+            font-size: 8.6pt;
+        }
+
+        canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            color: transparent;
+        }
+
+        #menu {
+            position: absolute;
+            top: 6px;
+            left: 6px;
+            height: auto;
+            width: auto;
+            background: #00082fab;
+            color: white;
+            box-shadow: 0px 0px 3px rgb(0 17 135 / 30%);
+            border-radius: 1px;
+            padding: 6px;
+        }
+
+            #menu .param {
+                margin: 2px 0;
+            }
+
+                #menu .param:last-of-type {
+                    margin: 0;
+                }
+
+                #menu .param label {
+                    display: inline-block;
+                    width: 100px;
+                }
+
+                #menu .param input {
+                    background: #010037c7;
+                    border: none;
+                    border-radius: 1px;
+                    font-size: 8.6pt;
+                    color: white;
+                }
+
+                    #menu .param input[type=number],
+                    #menu .param input[type=text] {
+                        padding: 2px 3px;
+                        width: 50px;
+                    }
+
+                    #menu .param input:disabled {
+                        background: #ffffff00;
+                    }
+
+            #menu .buttons {
+                padding-bottom: 8px;
+            }
+
+                #menu .buttons .right {
+                    float: right;
+                }
+
+                #menu .buttons button {
+                    padding: 2px 4px;
+                    cursor: pointer;
+                    min-width: 70px;
+                    font-size: 9pt;
+                }
+    </style>
+</body>

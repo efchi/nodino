@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-labelledby="nodino-logo-title">
+  <title id="nodino-logo-title">Nodino</title>
+
+  <!-- Backdrop: guarantees contrast on any page background, light or dark,
+       the same way Nodino's own canvas always paints backgroundColor first. -->
+  <circle cx="100" cy="100" r="98" fill="#ffffff" />
+
+  <!-- Perimeter: the boundary circle every Nodino layout is drawn against,
+       in the library's own default perimeterColor, at its default idle
+       opacity (0.5) — the one picture that only this library draws. -->
+  <circle cx="100" cy="100" r="86" fill="none" stroke="#000000" stroke-width="3" opacity="0.5" />
+
+  <!-- Edges, all in the library's 'proximity' reading color
+       (style.proximityEdgeColor, 0,140,120) — deliberately not blue or red,
+       since that reading is a different claim than either sign of
+       'relations'. Varied by alpha only, the way proximity edges (a flat
+       color, strength carried elsewhere) never are but relations edges
+       always are, so the mark still reads as more than one flat line.
+       Drawn under the nodes. -->
+  <g stroke="#008c78" stroke-linecap="round">
+    <line x1="108" y1="100" x2="100" y2="46"  stroke-width="3.5" opacity="0.75" />
+    <line x1="108" y1="100" x2="146" y2="78"  stroke-width="3.5" opacity="0.4" />
+    <line x1="108" y1="100" x2="138" y2="132" stroke-width="3.5" opacity="0.6" />
+    <line x1="108" y1="100" x2="86"  y2="150" stroke-width="3.5" opacity="0.3" />
+    <line x1="108" y1="100" x2="54"  y2="108" stroke-width="3.5" opacity="0.55" />
+    <line x1="100" y1="46"  x2="146" y2="78"  stroke-width="3"   opacity="0.45" />
+    <line x1="138" y1="132" x2="86"  y2="150" stroke-width="3"   opacity="0.65" />
+    <line x1="86"  y1="150" x2="54"  y2="108" stroke-width="3"   opacity="0.35" />
+  </g>
+
+  <!-- Nodes, in the library's own default nodeColor/nodeBorderColor. -->
+  <g fill="#000000">
+    <circle cx="100" cy="46"  r="8" />
+    <circle cx="146" cy="78"  r="8" />
+    <circle cx="138" cy="132" r="8" />
+    <circle cx="86"  cy="150" r="8" />
+    <circle cx="54"  cy="108" r="8" />
+    <circle cx="108" cy="100" r="9" />
+  </g>
+</svg>

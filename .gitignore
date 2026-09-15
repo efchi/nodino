@@ -400,10 +400,11 @@ FodyWeavers.xsd
 # JetBrains Rider
 *.sln.iml
 
-# Unico Custom
-
-/Unico.Web/App_Data_Runtime/*
-/Unico.App/App_Data_Runtime/*
-/Unico.App.Cli/App_Data_Runtime/*
-/Integro.WebEngine/App_Data_Runtime/*
-/KnowledgeManagementPoC/data
+# ---
+# .gitignore rules for public repos (efchi)
+# ---
+.vs
+.vs/*
+.pvt
+.pvt/*
+CLAUDE.local.md

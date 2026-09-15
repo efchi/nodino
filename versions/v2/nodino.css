@@ -1,0 +1,682 @@
+/**
+ * Nodino v2 — menu/chrome styles: debug panel, view mode toggle, search bar,
+ * simulation controls, detail panel, progress bar. Hand-editable on purpose —
+ * this is UI chrome, not the
+ * graph's own visual config (config.style: node/edge colors, perimeter,
+ * pulse, ...), which stays JS-driven so a host can set/change it
+ * programmatically per instance. Link this file from any page that embeds
+ * Nodino and uses these elements (see demo.html); the canvas itself needs
+ * nothing from here.
+ */
+
+/* Shared height for *every* chrome pill — .nodino-debug-toggle and
+   .nodino-sim-controls in the top-right row, .nodino-search,
+   .nodino-geometry-toggle and .nodino-view-toggle in the top-centre one. All
+   five are set from this single value rather than each falling out of its own
+   content, which is what they used to do: the text pills came out at 25px, the
+   icon pill at 27px, and three controls that read as one family sat at three
+   different heights. Whoever changes this changes all of them together.
+
+   28px is the icon pill's natural height (a 22px glyph button in 3px
+   padding), i.e. the tallest of the three, so nothing had to be cramped to
+   make them agree. That 3px inset is now shared too, with align-items:
+   stretch under it, so every button in the chrome measures 28 - 6 = 22px
+   without a single rule saying 22 anywhere.
+
+   The debug panel's top offset derives from it:
+     top offset       = 6px
+     row bottom edge  = 6 + 28       = 34px
+     panel top offset = 34 + 6 (gap) = 40px */
+:root {
+  --nodino-chrome-height: 28px;
+}
+
+/* Top-right chrome row: simulation controls + the ⚙ toggle. Pinned by its
+   right edge and shrink-wrapping its children, so whatever is currently
+   present packs against the corner by itself — hiding a component closes the
+   gap instead of leaving a hole, with no component needing to know whether
+   it happens to be the one at the edge. Order is fixed by `order` on the
+   children below, never by insertion order: components come and go through
+   updateConfig(), and appendChild alone would let a rebuilt one jump to the
+   end of the row. */
+.nodino-chrome-row {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.nodino-debug-panel {
+  position: absolute;
+  /* Hangs below the ⚙ toggle it belongs to, on the same (right) side. */
+  top: 40px;
+  right: 6px;
+  background: rgb(215 215 230 / 80%);
+  color: rgb(25 25 57);
+  font: 11.5px sans-serif;
+  padding: 4px 6px;
+  z-index: 20;
+  /* Bottom margin to match the panel's own 6px side margin (`right: 6px`
+     above): top offset (40px) + this box's own padding (4px top + 4px
+     bottom, box-sizing here is the default content-box so max-height
+     doesn't include it) + the 6px margin itself = 54px subtracted from the
+     container's height. Keep in sync with `top` above, which is itself
+     derived from --nodino-chrome-height. */
+  max-height: calc(100% - 54px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* Reserves the scrollbar's track up front instead of only once content
+     actually overflows — without this, the panel's content width changes
+     the instant a scrollbar appears (opening a group pushes past
+     max-height), shifting every row sideways by the scrollbar's width.
+     Not yet supported in Safari; there the old reflow-on-appear behavior
+     still applies, but nothing breaks — it's a graceful no-op fallback. */
+  scrollbar-gutter: stable;
+  /* Thin, on-brand scrollbar. Firefox only accepts the 'thin' keyword (no
+     exact px width there); Chromium/WebKit get the real 4px via the
+     ::-webkit-scrollbar rules below. */
+  scrollbar-width: thin;
+  scrollbar-color: rgb(75 75 139 / 50%) transparent;
+  border-radius: 4px;
+  width: 220px;
+}
+
+.nodino-debug-panel::-webkit-scrollbar {
+  width: 4px;
+}
+
+.nodino-debug-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.nodino-debug-panel::-webkit-scrollbar-thumb {
+  background: rgb(75 75 139 / 50%);
+  border-radius: 4px;
+}
+
+.nodino-debug-panel details {
+  /*margin: 2px 0;*/
+}
+
+    .nodino-debug-panel summary {
+        cursor: pointer;
+        padding: 5px 6px;
+        font-weight: bold;
+        user-select: none;
+        background: hsl(0deg 0% 100% / 95%);
+        color: rgb(25 25 57);
+        border-radius: 5px;
+        margin: 3px 0;
+    }
+        
+
+/* Body of a collapsible group: padding-top separates it from the summary
+   heading above, padding-bottom from the next group's heading below. */
+.nodino-debug-panel .nodino-group-body {
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+.nodino-debug-panel .nodino-row {
+  margin: 2px 0;
+  padding: 0 4px;
+  /* Label stays left, the control (single remaining flex child) gets
+     pushed to the row's right edge — reads as a right-aligned column of
+     controls instead of hugging the label on the left. */
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Takes the row's leftover width rather than a fixed 120px: the "?" badge
+   made a fixed label box overflow into the control beside it, and letting the
+   label flex means it stays correct whatever a field is called. */
+.nodino-debug-panel label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Visible marker that a field is documented — the native title attribute
+   alone gives no sign there is anything to hover. Grey on grey on purpose:
+   it is an invitation, not a warning, and there is one on nearly every row. */
+.nodino-debug-panel .nodino-help {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: rgb(75 75 139 / 18%);
+  color: rgb(25 25 57 / 65%);
+  font-size: 9px;
+  font-weight: bold;
+  line-height: 12px;
+  text-align: center;
+  user-select: none;
+}
+
+.nodino-debug-panel input[type="number"],
+.nodino-debug-panel input[type="text"],
+.nodino-debug-panel select {
+  width: 64px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgb(75 75 139 / 35%);
+  border-radius: 4px;
+  color: rgb(25 25 57);
+  padding: 2px 3px;
+}
+
+/* The top-centre row: geometry toggle, then view-mode toggle. The centering
+   argument that used to live on .nodino-view-toggle now lives here, and for
+   the same reason — no fixed width, so this shrink-wraps to whatever its
+   pills actually measure and left:50% + translateX(-50%) centers on exactly
+   half of that, correct on any screen, font or label change, with nothing to
+   keep in sync by hand. A fixed width + calc() offset (tried earlier) has to
+   be recomputed every time the content changes and silently drifts
+   otherwise — it had already gone stale here once. Moving it up to the row
+   is what keeps that true now that there are two pills rather than one:
+   offsetting the second against a hand-measured width of the first would be
+   the same mistake in a new place. */
+.nodino-view-row {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  /* Above the pinned detail card (21), not level with the chrome row (20).
+     This row holds the search box, and the card it opens is anchored to its
+     node — which can be a node sitting right under this row. At 20 the card
+     that a preview had just placed painted over the list that placed it, and
+     took the mouse there too, so the next row down could not be reached. The
+     list inside the box carries its own z-index for the same ordering one
+     level in; this is the one that decides it against everything outside. */
+  z-index: 22;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.nodino-view-toggle {
+  order: 3;
+  background: rgb(215 215 230 / 80%);
+  border-radius: 6px;
+  padding: 3px;
+  box-sizing: border-box;
+  height: var(--nodino-chrome-height);
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+
+/* Same pill family as the view toggle beside it — same background, radius and
+   padding. Buttons hold an icon plus a short 2D/3D label, so the height is
+   still pinned rather than left to the SVG or the label font, but the width
+   is not — it grows with the label. */
+.nodino-geometry-toggle {
+  order: 2;
+  background: rgb(215 215 230 / 80%);
+  border-radius: 6px;
+  padding: 3px;
+  box-sizing: border-box;
+  height: var(--nodino-chrome-height);
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+
+/* The height comes from the pill stretching it, same as before; the width is
+   now content-driven to fit the icon and its label side by side. */
+.nodino-geometry-toggle button {
+  cursor: pointer;
+  border: none;
+  border-radius: 4px;
+  padding: 0 8px;
+  background: transparent;
+  color: rgb(25 25 57);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font: 11px sans-serif;
+  white-space: nowrap;
+}
+
+.nodino-geometry-toggle button.active {
+  background: #ffffff;
+}
+
+/* The icons inherit their stroke from the button's color, so the inactive
+   state is one declaration here rather than a second pair of icons. */
+.nodino-geometry-toggle button:not(.active) {
+  color: rgb(25 25 57 / 55%);
+}
+
+.nodino-view-toggle button {
+  cursor: pointer;
+  border: none;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font: 11px sans-serif;
+  white-space: nowrap;
+  background: transparent;
+  color: rgb(25 25 57);
+}
+
+.nodino-view-toggle button.active {
+  background: #ffffff;
+}
+
+/* Proximity and Clusters read the layout, so they are only offered while it
+   is standing still — but they stay in place, greyed, rather than being
+   removed: the pill keeps a constant width, so it never resizes and
+   re-centers itself under the cursor mid-run, and the set of readings on
+   offer stays legible as a set. Same two cues as the simulation bar
+   (.nodino-sim-controls button:disabled), for the same reason — either one
+   alone reads as a style choice at this size rather than as "off" — and
+   deliberately the same treatment, since it is the same statement. */
+.nodino-view-toggle button:disabled {
+  cursor: default;
+  background: transparent;
+  color: rgb(25 25 57 / 35%);
+}
+
+/* Search: the uid box and the autocomplete list under it ([F Search.1]).
+   Third pill of the top-centre row and the same pill as its neighbours —
+   same background, radius, inset and --nodino-chrome-height — so a row that
+   now holds three things still reads as one.
+
+   `position: relative` is the only thing here that is not decoration: the
+   list below is absolutely positioned against this box, which is what keeps
+   it under the input at whatever width the row happens to be, instead of
+   against the container and at a coordinate something would have to compute.
+
+   Order across the row is set here rather than left to insertion order, for
+   the reason the top-right row already states: components come and go
+   through updateConfig(), and appendChild alone would let a rebuilt one jump
+   to the end. Search sits leftmost because the pair to its right is a pair —
+   which embedding, which reading — and belongs adjacent. */
+.nodino-search {
+  order: 1;
+  position: relative;
+  box-sizing: border-box;
+  height: var(--nodino-chrome-height);
+  padding: 3px;
+  background: rgb(215 215 230 / 80%);
+  border-radius: 6px;
+  display: flex;
+  align-items: stretch;
+}
+
+/* Transparent like every other control inside a pill, so the pill is what is
+   seen and the input is not a second box drawn inside the first. The width is
+   fixed: letting it size to its content would resize a centred row on every
+   keystroke, walking the toggles sideways under the cursor. */
+.nodino-search-input {
+  width: 130px;
+  border: none;
+  border-radius: 4px;
+  padding: 0 6px;
+  background: transparent;
+  color: rgb(25 25 57);
+  font: 11px sans-serif;
+  outline: none;
+}
+
+.nodino-search-input::placeholder {
+  color: rgb(25 25 57 / 45%);
+}
+
+/* Focus is worth showing — this is the one piece of chrome that receives
+   keystrokes, and which of the two rows has the keyboard is otherwise
+   invisible — but a UA outline around a transparent input inside a pill sits
+   on neither. Filling the input instead marks the pill's interior, in the
+   same white the active buttons next door use. */
+.nodino-search-input:focus {
+  background: #ffffff;
+}
+
+/* Hangs below the box, aligned to its left edge and free to be wider than it:
+   uids are the host's and can be long, and truncating them in the one place
+   whose entire job is telling them apart would defeat it. Capped instead, and
+   scrolled past the cap — the list is bounded at SEARCH_MAX_RESULTS rows, so
+   this only ever engages on a viewport too short to show a dozen. */
+.nodino-search-list {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  max-width: 260px;
+  max-height: 240px;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 3px;
+  background: rgb(215 215 230 / 92%);
+  border-radius: 6px;
+  /* Above the canvas and its two detail cards, being the thing that puts one
+     of them on screen. */
+  z-index: 25;
+}
+
+.nodino-search-list.nodino-open {
+  display: block;
+}
+
+.nodino-search-item {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 3px 6px;
+  font: 11px sans-serif;
+  color: rgb(25 25 57);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* One class for both the cursor and the arrow keys, set from JS in both
+   cases rather than :hover here and a class there — the row the keyboard is
+   on and the row the cursor is on are the same row, and two rules would let
+   two of them look chosen at once. */
+.nodino-search-item.nodino-active {
+  background: #ffffff;
+}
+
+/* Pill holding the always-on button that flips config.debug. Last in the
+   chrome row, so it is the one against the corner, with .nodino-debug-panel
+   hanging below it. Same pill treatment as .nodino-view-toggle and
+   .nodino-sim-controls — grey background on the container, transparent
+   button inside — so all three read as one family. Height fixed to
+   --nodino-chrome-height rather than left to the ⚙ glyph's metrics, which
+   vary by font and would not reliably match the bar beside it.
+
+   Padding, radius and `stretch` are copied from .nodino-view-toggle rather
+   than chosen here: matching the outer height alone still left the *inner*
+   buttons at three different sizes, because each pill inset its own by a
+   different amount. Same 3px inset + stretch everywhere means every button
+   in the chrome, in either row, is exactly --nodino-chrome-height - 6px
+   tall, without any of them naming that number. */
+.nodino-debug-toggle {
+  order: 2;
+  box-sizing: border-box;
+  height: var(--nodino-chrome-height);
+  padding: 3px;
+  background: rgb(215 215 230 / 80%);
+  border-radius: 6px;
+  display: flex;
+  align-items: stretch;
+}
+
+/* Width only, height from the pill stretching it: a fixed 24px, since this
+   one holds a centred glyph with no label. */
+.nodino-debug-toggle button {
+  cursor: pointer;
+  border: none;
+  border-radius: 4px;
+  padding: 0;
+  width: 24px;
+  font: 15px sans-serif;
+  background: transparent;
+  color: rgb(25 25 57);
+}
+
+.nodino-debug-toggle button.active {
+  background: #ffffff;
+}
+
+/* Simulation controls — Reset/Run/Pause/Force plus a state readout. First in
+   the chrome row, so it sits left of the ⚙; with the ⚙ hidden it simply
+   becomes the corner element, no special case required. Same pill treatment
+   as .nodino-view-toggle so the two read as one family, and the same fixed
+   height as the ⚙ so the pair lines up exactly — down to the 3px inset and
+   6px radius, so that its buttons come out the same size as the toggles'
+   too and not just its outer shell (see .nodino-debug-toggle). */
+.nodino-sim-controls {
+  order: 1;
+  background: rgb(215 215 230 / 80%);
+  border-radius: 6px;
+  box-sizing: border-box;
+  height: var(--nodino-chrome-height);
+  padding: 3px;
+  display: flex;
+  gap: 2px;
+  align-items: stretch;
+}
+
+/* Current state name, in the same vocabulary the spec uses. Monospace so the
+   pill's buttons don't shift sideways as the name changes length. Its own
+   flex box because the pill stretches it to full height like a button: left
+   to the default, the text would hang from the top edge instead of sitting
+   on the buttons' centre line. */
+.nodino-sim-state {
+  padding: 0 6px;
+  font: 10px/1 ui-monospace, monospace;
+  letter-spacing: .02em;
+  color: rgb(75 75 139 / 80%);
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+}
+
+/* Horizontal padding only: the height is the pill's, as in the toggles. The
+   8px matches .nodino-view-toggle button, so a label here and a label there
+   sit in the same amount of air. */
+.nodino-sim-controls button {
+  cursor: pointer;
+  border: none;
+  border-radius: 4px;
+  padding: 0 8px;
+  font: 11px sans-serif;
+  white-space: nowrap;
+  background: #ffffff;
+  color: rgb(25 25 57);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Buttons stay in place when their transition is illegal, greyed rather than
+   removed, so the bar never changes size — see createSimControls().sync().
+   Both cues together (flat background *and* faded text) because either one
+   alone reads as a style choice at this size rather than as "off". */
+.nodino-sim-controls button:disabled {
+  cursor: default;
+  background: rgb(255 255 255 / 25%);
+  color: rgb(25 25 57 / 35%);
+}
+
+/* Slightly larger than the label beside it: these glyphs (↺ ▶ ❙❙ ▶❙) render
+   small for their em size in most families, and matching the text size makes
+   them read as punctuation rather than as an icon. */
+.nodino-sim-glyph {
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* Hover card. Same palette and font stack as the rest of the chrome — it was
+   the one near-black element in an otherwise light interface, which read as a
+   different widget rather than as part of this one. Two deliberate departures
+   from the pills, both because this box floats over the graph instead of
+   sitting in a corner: the background is near-white rather than the pills'
+   lavender, so host-supplied content stays legible over dense edges; and the
+   border is a full 2px in a darker tint, doing the work of separating card
+   from canvas that a pill gets for free by hugging the container edge. The
+   shadow only reinforces that — it is not what makes the edge readable. */
+.nodino-detail-panel {
+  position: absolute;
+  pointer-events: none;
+  display: none;
+  box-sizing: border-box;
+  background: rgb(255 255 255 / 90%);
+  color: rgb(25 25 57);
+  border: 2px solid rgb(75 75 139 / 45%);
+  /* 6px, not the pills' 4px: a 2px border makes a 4px radius look squared
+     off at the corners, the inner curve being 4 - 2 = 2px. */
+  border-radius: 6px;
+  padding: 6px 8px;
+  box-shadow: 0 2px 8px rgb(25 25 57 / 12%);
+  font: 11px/1.4 sans-serif;
+  max-width: 260px;
+  z-index: 20;
+}
+
+/* The pinned card ([F Interact.3]) — the same component, one instance per
+   widget, and the two are on screen together whenever someone hovers another
+   node while a pin holds. `pointer-events: auto` is the whole feature: without
+   it the DOM a host injects into the body is inert, which is what pinning
+   exists to fix. The rest is telling the two apart at a glance. Fully opaque
+   rather than 90%, since a card being read at leisure should not have edges
+   showing through it; the border goes to the chrome's own lavender at full
+   strength and the shadow deepens, so the pinned card sits *above* the graph
+   where the hover card floats over it. One step up in the stack for the same
+   reason — a transient card must not cover the one being read. `cursor:
+   default` because the canvas underneath is showing 'pointer' at the moment of
+   the click, and the panel would otherwise inherit a promise of a second click
+   that does nothing. */
+.nodino-detail-panel.nodino-pinned {
+  pointer-events: auto;
+  cursor: default;
+  z-index: 21;
+  background: rgb(255 255 255);
+  border-color: rgb(75 75 139 / 90%);
+  box-shadow: 0 3px 12px rgb(25 25 57 / 22%);
+}
+
+/* The uid, and the panel's whole default content. Bold because it is a
+   heading whenever the host puts anything below it, and harmless when it is
+   the only line. */
+.nodino-detail-title {
+  font-weight: bold;
+}
+
+/* Host slot, empty unless onNodeHover fills it. The margin is on :not(:empty)
+   so a panel showing the title alone stays tight around it — a fixed margin
+   would leave a strip of dead space under every uid-only tooltip, which is
+   the common case. */
+.nodino-detail-body:not(:empty) {
+  margin-top: 4px;
+}
+
+/* The two bottom readouts: node/edge counts on the right, accumulated run
+   time on the left. One shared rule because they are a matched pair and must
+   read as one — small and grey on purpose, since both answer occasional
+   questions and neither should compete with the graph for attention. Both
+   clear the progress bar's 3px strip along the bottom edge. */
+.nodino-stats,
+.nodino-time {
+  position: absolute;
+  bottom: 8px;
+  z-index: 15;
+  pointer-events: none;
+  font: 10px sans-serif;
+  color: rgb(25 25 57 / 40%);
+  white-space: nowrap;
+}
+
+.nodino-stats {
+  right: 8px;
+}
+
+.nodino-time {
+  left: 8px;
+  /* Tabular figures so the text does not jitter as the digits tick over —
+     at 10 updates a second, proportional digits visibly shuffle. */
+  font-variant-numeric: tabular-nums;
+}
+
+.nodino-progress-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: #cfcfe2;
+  transform-origin: left;
+  z-index: 15;
+  pointer-events: none;
+}
+
+/* ===========================================================================
+   Responsive chrome, below 1200px — a phone, a tablet, or just a narrow
+   window. Everything below is scoped inside a max-width query, so none of it
+   changes anything above this line — desktop stays exactly as it was. Two
+   tiers: a 1200-or-narrower one that shrinks pills in place and moves them
+   off the top edge, and a narrower one still where the top-centre row stops
+   fitting on one line at any shrink factor and stacks instead.
+   =========================================================================== */
+
+@media (max-width: 1200px) {
+  /* Four labelled buttons plus a state readout, in the same corner the
+     view-mode/geometry/search row occupies from the other side, do not fit
+     next to it once the window is this narrow. The label collapses to zero
+     width via font-size rather than leaving the DOM, so the tap target and
+     the title tooltip are both unaffected — only the printed word
+     disappears. */
+  .nodino-sim-controls button {
+    font-size: 0;
+    padding: 0 6px;
+  }
+
+  .nodino-sim-controls .nodino-sim-glyph {
+    font-size: 12px; /* explicit, so it survives the button's font-size: 0 */
+  }
+
+  /* Long state names ('forced_settled') would otherwise dictate the pill's
+     width; capped and ellipsised instead, so the bar's width stays governed
+     by its buttons alone. */
+  .nodino-sim-state {
+    max-width: 46px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .nodino-search-input {
+    width: 90px;
+  }
+
+  .nodino-debug-panel {
+    width: min(220px, 62vw);
+  }
+
+  /* Moved off the top edge, which the search/geometry/view row now has to
+     itself: two chrome regions competing for the same six pixels of top
+     margin was the actual crowding, not any one region's width. Bottom
+     instead of top, same corner (right) — 30px rather than 6px so the pill
+     clears .nodino-stats, which still sits at its usual bottom: 8px here. */
+  .nodino-chrome-row {
+    top: auto;
+    bottom: 30px;
+  }
+
+  /* Hangs *above* the toggle now that the toggle is at the bottom — top
+     swaps for bottom, and the offset grows to clear the relocated toggle
+     pill (30px + its 28px height + a 6px gap = 64) instead of the old single
+     row's height. max-height's budget grows by the same 24px this offset
+     gained over the old one (40 -> 64), so the panel still fits above
+     whatever is below it without the two ever fighting over the same space. */
+  .nodino-debug-panel {
+    top: auto;
+    bottom: 64px;
+    max-height: calc(100% - 78px);
+  }
+}
+
+@media (max-width: 480px) {
+  /* Below this width even the compacted row above cannot fit all three
+     pills — search, geometry toggle, view toggle — on one line without
+     clipping against the screen edge. Stacked instead, each centered on its
+     own line in the same top-to-bottom order the `order` values already
+     give it left-to-right, so no width down here has to fit all three at
+     once. */
+  .nodino-view-row {
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .nodino-search-input {
+    width: 150px; /* the row is no longer shared, so this can afford more */
+  }
+}

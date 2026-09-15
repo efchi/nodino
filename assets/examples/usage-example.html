@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Nodino — Getting Started</title>
+
+    <!-- 1. Nodino's chrome styles. Needed by the simulation controls, the
+            view-mode toggle, the stats readout, the detail panel and the
+            progress bar. The canvas itself needs nothing from this file, so
+            you can skip it only if you turn all of that chrome off. -->
+    <link rel="stylesheet" href="../../nodino.css" />
+
+    <style>
+        html, body { margin: 0; height: 100%; font-family: sans-serif; }
+
+        /* 2. The container must have a size and its own positioning context:
+              Nodino appends absolutely-positioned chrome into it, and a
+              static parent would let that escape to the page. */
+        #graph {
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div id="graph"></div>
+
+    <script src="../../nodino.js"></script>
+    <script>
+        // 3. Create the instance. create() takes instance-level options only —
+        //    it never takes data.
+        var nodino = Nodino.create(document.getElementById('graph'), {
+            config: {
+                // Every parameter is optional; these are just to show the shape.
+                maxEdgesPerNode: 15,
+                style: { nodeColor: '#1a1a3a' }
+            },
+            // Optional. Fires on every lifecycle transition — 'loaded',
+            // 'running', 'settled', ... — if you want to mirror the state into
+            // your own UI. The built-in controls do not need it.
+            onStateChange: function (state) {
+                console.log('[nodino]', state);
+            }
+        });
+
+        // 4. The graph itself. `edges` is the only required field: a node
+        //    exists as soon as an edge names it, so `nodes` is only for
+        //    attaching metadata. Weights are in [-1, 1] — positive attracts,
+        //    negative repels, 0 (or no edge) means no relation at all.
+        var data = {
+            nodes: {
+                // `m` is your own opaque metadata. Nodino never reads inside
+                // it; it just hands it back to onNodeHover.
+                apple:  { m: { label: 'Apple',  kind: 'fruit' } },
+                pear:   { m: { label: 'Pear',   kind: 'fruit' } },
+                cherry: { m: { label: 'Cherry', kind: 'fruit' } },
+                hammer: { m: { label: 'Hammer', kind: 'tool'  } },
+                wrench: { m: { label: 'Wrench', kind: 'tool'  } }
+            },
+            edges: [
+                ['apple',  'pear',   0.9],
+                ['apple',  'cherry', 0.7],
+                ['pear',   'cherry', 0.6],
+                ['hammer', 'wrench', 0.85],
+                // Negative weight: these two are pushed apart.
+                ['apple',  'hammer', -0.5],
+                ['cherry', 'wrench', -0.4]
+            ]
+            // positions: { apple: { x: 0, y: 0 } }   // optional, partial, in [-1, 1]
+        };
+
+        // 5. Load it. The second argument holds what belongs to *this dataset*
+        //    rather than to the instance — chiefly onNodeHover, whose job is
+        //    to render metadata whose shape only this dataset knows.
+        //    The panel already titles itself with the node's uid, so a handler
+        //    only supplies what comes below that. Return a string (or a promise
+        //    of one), or fill the `body` element you are handed directly when
+        //    the content needs to be live DOM rather than markup. Omit the
+        //    handler entirely and hovering still shows the uid.
+        //    The panel is click-through while it follows the cursor; clicking
+        //    the node pins it in place, and a pinned panel takes the mouse —
+        //    which is how a link or a button you put in here gets clicked.
+        //    That card has a handler of its own, `onNodePin`, with the same
+        //    contract: put the controls there, where they can be used. Left
+        //    out (as here) it falls back to onNodeHover, so one handler is
+        //    still enough when there is nothing extra to offer.
+        nodino.load(data, {
+            onNodeHover: function (node) {   // (node, body) if you want the element
+                var label = (node.m && node.m.label) || node.uid;
+                var kind = (node.m && node.m.kind) || 'unknown';
+                return '<strong>' + label + '</strong><br>' + kind;
+            }
+            // config: { ... }   // optional per-dataset config patch
+        });
+
+        // 6. load() never starts the simulation — it draws the graph at rest
+        //    so you decide when it runs. Either call start() yourself, as
+        //    here, or leave it to the user and the built-in Run button.
+        nodino.start();
+
+        // Also available: pause(), forceContinue(), restart(), getStats(),
+        // updateConfig(partial), destroy(). Each is refused with a console
+        // warning if the current lifecycle state has no transition for it.
+    </script>
+</body>
+</html>
