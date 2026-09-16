@@ -1,14 +1,17 @@
-<p align="center">
-  <img src="logo.svg" width="120" height="120" alt="Nodino logo" />
-</p>
-
-<h1 align="center">Nodino 2</h1>
+<h1 align="center" style="display: flex; align-items: center; justify-content: center; gap: 12px;">
+  <img src="logo.svg" width="40" height="40" alt="Nodino logo" />
+  Nodino v2
+</h1>
 
 <p align="center">A deterministic, dependency-free 2D &amp; 3D force-directed graph viewer for the browser.</p>
 
-> **Disclaimer:** Nodino is *entirely* vibe-coded with [Claude](https://claude.ai) — every line of it, top to bottom.
+<p align="center">
+  <img src="assets/animation.webp" alt="Nodino in action" />
+</p>
 
-Nodino lays out a signed, weighted graph — positive weights attract, negative repel — and draws it live on a `<canvas>`, as a flat 2D disk or on the surface of a 3D sphere, the two being one toggle apart rather than separate modes: the same physics, the same readings, and the same interactions apply to both. It ships as two static files with no build step and no runtime dependencies: `nodino.js` (the engine and renderer) and an optional `nodino.css` for its built-in chrome (search box, view/geometry toggles, simulation controls, a debug panel, detail cards, readouts).
+---
+
+Nodino lays out a weighted graph and draws it live on a `<canvas>`, as a flat 2D disk or on the surface of a 3D sphere. It ships as two static files with no build step and no runtime dependencies: `nodino.js` (the engine and renderer) and `nodino.css`.
 
 ```html
 <link rel="stylesheet" href="nodino.css" />
@@ -21,14 +24,16 @@ Nodino lays out a signed, weighted graph — positive weights attract, negative 
 </script>
 ```
 
+> **Disclaimer:** Nodino is *entirely* vibe-coded with [Claude](https://claude.ai) — every line of it, top to bottom.
+
 ## Features
 
 - **Deterministic.** The same data and config produce the same layout on every machine, every run — no `Math.random()` anywhere in the engine.
 - **2D and 3D, natively.** A flat unit disk, or the same graph laid out on the surface of a sphere — the same physics and the same readings on both, switchable at any time with one toggle. Not a projection of one onto the other: two real embeddings of the same graph.
-- **Two readings, live.** `'relations'` shows every input edge as given; switch to `'proximity'` (once the layout settles) to see which nodes actually ended up near which, independent of what the input claimed.
-- **Built-in chrome, all optional.** Simulation controls, a uid search box with autocomplete, view/geometry toggles, a live tweak panel, pan/zoom/rotate with full touch support — each behind its own config flag, and gone from the DOM entirely when off, not just hidden.
-- **A small, typed public API.** `load` / `start` / `pause` / `forceContinue` / `restart` / `updateConfig` / `pin` / `hover` / `getStats` / `getPositions` / `getGlobePositions` / `destroy` — see [`API-DOCS.md`](API-DOCS.md).
 - **Bounded cost at scale.** Symmetric kNN edge sparsification, viewport culling, and a spatial index keep the frame rate flat well past the point a naive force layout gives up.
+- **Two readings, live.** `'relations'` shows every input edge as given; switch to `'proximity'` (once the layout settles) to see which nodes actually ended up near which.
+- **Built-in controls, all optional.** Simulation controls, a uid search box with autocomplete, view/geometry toggles, a live tweak panel, pan/zoom/rotate with full touch support — each behind its own config flag, and gone from the DOM entirely when off, not just hidden.
+- **A small, typed public API.** `load` / `start` / `pause` / `forceContinue` / `restart` / `updateConfig` / `pin` / `hover` / `getStats` / `getPositions` / `getGlobePositions` / `destroy` — see [`API-DOCS.md`](API-DOCS.md).
 
 ## Where to start
 

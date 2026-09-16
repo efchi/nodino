@@ -5,7 +5,7 @@
 | **Project** | Nodino v2 |
 | **Status** | Stable — reflects the current implementation (`nodino.js`, `nodino.css`, `demo.html`, `assets/examples/usage-example.html`) |
 | **Notation** | [Dox](../dox/.dox/Dox.md) v1.8.1 |
-| **Predecessor** | Nodino (PoC) — `versions/v1/poc.v1.html`, kept for reference; a single-file, O(n²), non-interactive force-directed demo with no id/data model to speak of |
+| **Predecessor** | Nodino (PoC) — a single-file, O(n²), non-interactive force-directed demo with no id/data model to speak of; not kept in this repo |
 | **Deliverable** | `nodino.js` (core library) + `nodino.css` (UI chrome styling) + `demo.html` (standalone demo) + `assets/examples/usage-example.html` (minimal getting-started page) |
 
 This document describes what Nodino v2 *is* — the implemented behavior, the API surface, and the major design decisions behind it. It is the as-is: it records decisions and the reasoning that is still load-bearing, plus the open points, debts and risks below. It is not a changelog, and no file in this project keeps one — where an alternative is documented, it is because someone would otherwise try it again, not to note that it was once tried.
