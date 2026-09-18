@@ -1,9 +1,8 @@
-<h1 align="center" style="display: flex; align-items: center; justify-content: center; gap: 12px;">
-  <img src="logo.svg" width="40" height="40" alt="Nodino logo" />
+<h1 align="center">
   Nodino v2
 </h1>
 
-<p align="center">A deterministic, dependency-free 2D &amp; 3D force-directed graph viewer for the browser.</p>
+<p align="center">A deterministic, dependency-free 2D &amp; 3D force-directed graph viewer for the browser. <a href="https://efchi.github.io/nodino/"><b>Live Demo</b></a></p>
 
 <p align="center">
   <img src="assets/animation.webp" alt="Nodino in action" />
@@ -11,7 +10,13 @@
 
 ---
 
-Nodino lays out a weighted graph and draws it live on a `<canvas>`, as a flat 2D disk or on the surface of a 3D sphere. It ships as two static files with no build step and no runtime dependencies: `nodino.js` (the engine and renderer) and `nodino.css`.
+Give Nodino a graph — just nodes and the edges between them — and it figures out where everything goes: a physics simulation pulls similar nodes together and pushes dissimilar ones apart until a layout emerges on its own. Watch it happen live, as a flat 2D disk or on the surface of a 3D sphere, and explore the result — pan, zoom, rotate, hover a node for detail, or jump straight to one with the built-in search and autocomplete.
+
+> **Disclaimer:** Nodino is *entirely* vibe-coded with [Claude](https://claude.ai) — every line of it, top to bottom.
+
+## Quickstart
+
+No build step and no runtime dependencies. Ships as two static files: `nodino.js` and `nodino.css`.
 
 ```html
 <link rel="stylesheet" href="nodino.css" />
@@ -24,33 +29,17 @@ Nodino lays out a weighted graph and draws it live on a `<canvas>`, as a flat 2D
 </script>
 ```
 
-> **Disclaimer:** Nodino is *entirely* vibe-coded with [Claude](https://claude.ai) — every line of it, top to bottom.
-
 ## Features
 
-- **Deterministic.** The same data and config produce the same layout on every machine, every run — no `Math.random()` anywhere in the engine.
-- **2D and 3D, natively.** A flat unit disk, or the same graph laid out on the surface of a sphere — the same physics and the same readings on both, switchable at any time with one toggle. Not a projection of one onto the other: two real embeddings of the same graph.
+- **Deterministic.** The same data and config produce the same layout on every machine, every run.
+- **2D and 3D.** A flat unit disk, or the same graph laid out on the surface of a sphere — the same physics and the same readings on both, switchable at any time with one toggle.
 - **Bounded cost at scale.** Symmetric kNN edge sparsification, viewport culling, and a spatial index keep the frame rate flat well past the point a naive force layout gives up.
-- **Two readings, live.** `'relations'` shows every input edge as given; switch to `'proximity'` (once the layout settles) to see which nodes actually ended up near which.
+- **Cache-ready.** Built-in support for caching the simulation's result and resuming from an already-computed layout, so you don't have to re-run the simulation every time.
 - **Built-in controls, all optional.** Simulation controls, a uid search box with autocomplete, view/geometry toggles, a live tweak panel, pan/zoom/rotate with full touch support — each behind its own config flag, and gone from the DOM entirely when off, not just hidden.
-- **A small, typed public API.** `load` / `start` / `pause` / `forceContinue` / `restart` / `updateConfig` / `pin` / `hover` / `getStats` / `getPositions` / `getGlobePositions` / `destroy` — see [`API-DOCS.md`](API-DOCS.md).
+- **A small, typed public API** — see [`API-DOCS.md`](API-DOCS.md).
 
-## Where to start
+## Integrating Nodino
 
-- **Using Nodino in a page?** [`demo.html`](demo.html) is a full working embed — every data source (random generation, pasted/imported JSON, exported round-trip) alongside the debug panel. [`API-DOCS.md`](API-DOCS.md) is the full interface reference — every method, config field, callback, and UI feature.
-- **Extending or modifying the library, by hand or with an AI agent?** [`CLAUDE.md`](CLAUDE.md) covers the project's hard invariants and how to extend it safely; [`nodino.dox.md`](nodino.dox.md) is the full as-is specification — every behavior and the reasoning behind it.
+The best way to use Nodino is probably with an AI: hand it [`API-DOCS.md`](API-DOCS.md) and [`CLAUDE.md`](CLAUDE.md) as context and it'll be able to integrate it into your application. A working [`demo.html`](demo.html) and the full [`nodino.dox.md`](nodino.dox.md) specification used to build Nodino are also available.
 
-## Files
-
-| File | What it is |
-|---|---|
-| `nodino.js` | The library. One file, no build step. |
-| `nodino.css` | Optional chrome styling — only needed if any of the built-in UI is turned on. |
-| `demo.html` | Full exerciser, with the debug/tweak panel. |
-| `API-DOCS.md` | Developer-facing API reference. |
-| `CLAUDE.md` | Guidance for AI agents working on this codebase. |
-| `nodino.dox.md` | The as-is specification — what the library does and why, in detail. |
-
-## Browser support
-
-Anything with `<canvas>`, Pointer Events, and `ResizeObserver` — all current evergreen browsers, desktop and mobile.
+Nodino has no dependencies and needs no build step — the only requirements are `<canvas>`, Pointer Events, and `ResizeObserver`, which cover all current evergreen browsers, desktop and mobile.
