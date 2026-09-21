@@ -18,6 +18,19 @@ Give Nodino a graph — just nodes and the edges between them — and it figures
 
 No build step and no runtime dependencies. Ships as two static files: `nodino.js` and `nodino.css`.
 
+Install from npm:
+
+```sh
+npm install @efchi/nodino
+```
+
+```js
+import Nodino from '@efchi/nodino';
+import '@efchi/nodino/nodino.css';
+```
+
+Or skip npm and use plain script tags — download the two files (or load them from a CDN, see [Installation](API-DOCS.md#installation)):
+
 ```html
 <link rel="stylesheet" href="nodino.css" />
 <div id="graph" style="position: relative; width: 100%; height: 100%;"></div>

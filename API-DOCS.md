@@ -18,6 +18,19 @@ Exhaustive interface reference for `nodino.js` (+ `nodino.css` for its optional 
 
 See `demo.html` for a fuller walkthrough — every data source plus the debug/tweak panel.
 
+## Installation
+
+**npm** — `npm install @efchi/nodino`. The package is the same two files plus TypeScript declarations (`nodino.d.ts`, picked up automatically):
+
+```js
+import Nodino from '@efchi/nodino';        // or: const Nodino = require('@efchi/nodino');
+import '@efchi/nodino/nodino.css';         // only if any chrome flag below is on
+```
+
+Importing is safe on the server (SSR, tooling) — nothing touches the DOM until [`create()`](#nodinocreatecontainer-options) is called, and `create()` is browser-only (call it from a client-side effect/lifecycle hook, once the container element exists). In a bundled app `Nodino` is only what you import — no `window.Nodino` is set.
+
+**Script tag** — link `nodino.js` (and `nodino.css`) directly, as in the snippet above; this defines the global `window.Nodino`. From a CDN, once published: `https://cdn.jsdelivr.net/npm/@efchi/nodino/nodino.js` and `.../nodino.css`.
+
 ## Contents
 
 1. [`Nodino.create()`](#nodinocreatecontainer-options)
@@ -50,7 +63,7 @@ var nodino = Nodino.create(el, {
 
 ## Instance methods
 
-Every method below is a no-op with a `console.warn` if called on a `'destroyed'` instance. The four lifecycle verbs (`start`/`pause`/`forceContinue`/`restart`) additionally refuse (warn, return `false`, no state change) when the *current* state has no transition for that action — see the [table](#lifecycle). `load()` and `destroy()` are legal in every state but `'destroyed'`.
+Every method below is a no-op with a `console.warn` if called on a `'destroyed'` instance. The four lifecycle verbs (`start`/`pause`/`forceContinue`/`restart`) additionally refuse (`console.warn`, no state change) when the *current* state has no transition for that action — see the [table](#lifecycle). They return nothing either way, so a refusal is visible only through the warning and the unchanged state (`getStats().state` / `onStateChange`). `load()` and `destroy()` are legal in every state but `'destroyed'`.
 
 ### `load(data, loadOptions)`
 

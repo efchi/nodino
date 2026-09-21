@@ -1,0 +1,49 @@
+{
+  "name": "@efchi/nodino",
+  "version": "2.0.0",
+  "description": "A deterministic, dependency-free 2D & 3D force-directed graph viewer for the browser.",
+  "keywords": [
+    "graph",
+    "force-directed",
+    "graph-visualization",
+    "network",
+    "canvas",
+    "embeddings",
+    "deterministic",
+    "globe"
+  ],
+  "license": "MIT",
+  "author": "efchi",
+  "homepage": "https://github.com/efchi/nodino#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/efchi/nodino.git"
+  },
+  "bugs": {
+    "url": "https://github.com/efchi/nodino/issues"
+  },
+  "main": "nodino.js",
+  "types": "nodino.d.ts",
+  "style": "nodino.css",
+  "exports": {
+    ".": {
+      "types": "./nodino.d.ts",
+      "default": "./nodino.js"
+    },
+    "./nodino.css": "./nodino.css",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "nodino.js",
+    "nodino.css",
+    "nodino.d.ts",
+    "API-DOCS.md",
+    "logo.svg"
+  ],
+  "sideEffects": [
+    "*.css"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

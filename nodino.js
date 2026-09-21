@@ -6146,5 +6146,17 @@
     };
   }
 
-  global.Nodino = { create: create };
-})(window);
+  // Two ways out, chosen by what the host is: a CommonJS environment (Node, a
+  // bundler consuming the npm package) gets `module.exports`, anything else
+  // gets `window.Nodino` as before ([F Arch.2]). Either/or rather than both:
+  // a bundled app has no business acquiring a global it never asked for, and
+  // a plain <script> page never has a `module` to trip this on. Nothing above
+  // touches `document`/`window` at load time — only create() does — so
+  // requiring this file server-side (SSR, tooling) is safe until create() is
+  // actually called, which is browser-only.
+  if (typeof module === 'object' && module && module.exports) {
+    module.exports = { create: create };
+  } else {
+    global.Nodino = { create: create };
+  }
+})(typeof window !== 'undefined' ? window : globalThis);
