@@ -117,6 +117,16 @@
             #toolbar.collapsed h1 {
                 margin-bottom: 3px;
             }
+
+            /* Collapsed, the bar is just the logo and the toggle — the title
+               text is what was making the bar wide enough to run under
+               Nodino's own chrome (top-centre row / right-hand controls),
+               which this corner's bar sits above on a narrow window. Hidden
+               rather than removed, so expanding brings it straight back with
+               no DOM change. */
+            #toolbar.collapsed h1 .toolbar-title {
+                display: none;
+            }
         }
 
             /* Heading and group headers share one look — the heading is just
@@ -282,7 +292,9 @@
              keep in sync. -->
         <h1>
             <img src="logo.svg" width="18" height="18" alt="" aria-hidden="true" />
-            Nodino Demo
+            <!-- Wrapped so the collapsed-mobile rule above can hide just the
+                 text, leaving the logo and toggle as the whole bar. -->
+            <span class="toolbar-title">Nodino Demo</span>
             <!-- Mobile-only (see #toolbar-toggle in the style block above) —
                  collapses/expands the panel body below. Invisible and inert
                  on desktop, so nothing here changes desktop behavior. -->
