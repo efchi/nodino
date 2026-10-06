@@ -11,24 +11,108 @@
 
 /* Shared height for *every* chrome pill — .nodino-debug-toggle and
    .nodino-sim-controls in the top-right row, .nodino-search,
-   .nodino-geometry-toggle and .nodino-view-toggle in the top-centre one. All
-   five are set from this single value rather than each falling out of its own
+   .nodino-geometry-toggle, .nodino-view-toggle and .nodino-labels-toggle in
+   the top-centre one. All six are set from this single value rather than each falling out of its own
    content, which is what they used to do: the text pills came out at 25px, the
    icon pill at 27px, and three controls that read as one family sat at three
    different heights. Whoever changes this changes all of them together.
 
-   28px is the icon pill's natural height (a 22px glyph button in 3px
-   padding), i.e. the tallest of the three, so nothing had to be cramped to
-   make them agree. That 3px inset is now shared too, with align-items:
-   stretch under it, so every button in the chrome measures 28 - 6 = 22px
-   without a single rule saying 22 anywhere.
+   28px is the icon pill's natural height (a 22px glyph button in 3px of
+   inset), i.e. the tallest of the three, so nothing had to be cramped to
+   make them agree. That inset is shared too — a 1px border plus 2px of
+   padding — with align-items: stretch under it, so every button in the
+   chrome measures 28 - 2 × 3 = 22px without a single rule saying 22
+   anywhere.
 
    The debug panel's top offset derives from it:
      top offset       = 6px
      row bottom edge  = 6 + 28       = 34px
      panel top offset = 34 + 6 (gap) = 40px */
+/* The one surface every menu is drawn on — pills, the debug panel, the
+   search list — so they read as one family and a host can restyle all of
+   them at once by overriding these. A pale glass rather than a solid tint:
+   blurred, the graph behind stays a texture instead of competing with the
+   text; the hairline border is what separates a menu from the canvas where
+   the two are close in colour. No shadow by default — the border already
+   draws the edge — but the token is kept so a host can add one. demo.html's own panel uses
+   the same tokens. */
 :root {
   --nodino-chrome-height: 28px;
+  --nodino-surface: #eeeef6d9;
+  --nodino-surface-border: 1px solid #39396136;
+  --nodino-surface-shadow: none;
+  --nodino-surface-blur: blur(6px);
+
+  /* The rest of the menus' palette — every colour the chrome draws with, so a
+     theme ([D Config.8]) or a host recolours all of it by overriding these.
+     ink is the text, in four strengths; button-* the pills' controls;
+     field-*, line, accent and focus the debug panel; card-* the two detail
+     cards. These are the light theme's values. */
+  --nodino-ink: rgb(25 25 57);
+  --nodino-ink-soft: rgb(25 25 57 / 70%);
+  --nodino-ink-muted: rgb(25 25 57 / 60%);
+  --nodino-ink-faint: rgb(25 25 57 / 40%);
+  --nodino-ink-disabled: rgb(25 25 57 / 35%);
+  --nodino-button-border: #c9c9d79e;
+  --nodino-button-bg: #ffffff;
+  --nodino-button-active-bg: #ffffff;
+  --nodino-button-disabled-bg: rgb(255 255 255 / 25%);
+  --nodino-state-ink: rgb(75 75 139 / 80%);
+  --nodino-line: rgb(75 75 139 / 18%);
+  --nodino-field-border: rgb(75 75 139 / 28%);
+  --nodino-field-bg: rgb(255 255 255 / 82%);
+  --nodino-field-disabled-bg: rgb(255 255 255 / 40%);
+  --nodino-accent: rgb(62 62 128);
+  --nodino-accent-hover: rgb(48 48 105);
+  --nodino-accent-ink: #ffffff;
+  --nodino-focus: rgb(75 75 139 / 35%);
+  --nodino-help-bg: rgb(75 75 139 / 14%);
+  --nodino-scrollbar: rgb(75 75 139 / 50%);
+  --nodino-card-bg: rgb(255 255 255 / 90%);
+  --nodino-card-border: rgb(75 75 139 / 45%);
+  --nodino-card-shadow: rgb(25 25 57 / 12%);
+  --nodino-card-pinned-bg: #ffffff;
+  --nodino-card-pinned-border: rgb(75 75 139 / 90%);
+  --nodino-card-pinned-shadow: rgb(25 25 57 / 22%);
+  --nodino-progress: #cfcfe2;
+}
+
+/* Constellation ([D Config.8]): the same chrome, made of the night it sits
+   on — a dark navy glass instead of the pale one, pale blue-white ink, and
+   controls lit from within rather than white. Set on the container by
+   Nodino whenever config.theme is 'constellation'; every menu inherits it.
+   A host page can put the same class on its own panels to match (the demo
+   does). */
+.nodino-theme-constellation {
+  --nodino-surface: rgb(27 41 84 / 84%);
+  --nodino-surface-border: 1px solid rgb(160 180 255 / 26%);
+  --nodino-ink: #e6ecff;
+  --nodino-ink-soft: rgb(230 236 255 / 72%);
+  --nodino-ink-muted: rgb(230 236 255 / 60%);
+  --nodino-ink-faint: rgb(230 236 255 / 40%);
+  --nodino-ink-disabled: rgb(230 236 255 / 32%);
+  --nodino-button-border: rgb(160 180 255 / 26%);
+  --nodino-button-bg: rgb(160 180 255 / 15%);
+  --nodino-button-active-bg: rgb(160 180 255 / 32%);
+  --nodino-button-disabled-bg: rgb(160 180 255 / 4%);
+  --nodino-state-ink: rgb(190 205 255 / 80%);
+  --nodino-line: rgb(160 180 255 / 16%);
+  --nodino-field-border: rgb(160 180 255 / 30%);
+  --nodino-field-bg: rgb(17 29 64 / 72%);
+  --nodino-field-disabled-bg: rgb(160 180 255 / 5%);
+  --nodino-accent: #9fb4ff;
+  --nodino-accent-hover: #bccbff;
+  --nodino-accent-ink: #0b1530;
+  --nodino-focus: rgb(159 180 255 / 35%);
+  --nodino-help-bg: rgb(160 180 255 / 18%);
+  --nodino-scrollbar: rgb(160 180 255 / 40%);
+  --nodino-card-bg: rgb(24 37 77 / 92%);
+  --nodino-card-border: rgb(160 180 255 / 40%);
+  --nodino-card-shadow: rgb(0 0 0 / 40%);
+  --nodino-card-pinned-bg: #1a2a59;
+  --nodino-card-pinned-border: rgb(180 200 255 / 85%);
+  --nodino-card-pinned-shadow: rgb(0 0 0 / 55%);
+  --nodino-progress: #3d5199;
 }
 
 /* Top-right chrome row: simulation controls + the ⚙ toggle. Pinned by its
@@ -54,18 +138,25 @@
   /* Hangs below the ⚙ toggle it belongs to, on the same (right) side. */
   top: 40px;
   right: 6px;
-  background: rgb(215 215 230 / 80%);
-  color: rgb(25 25 57);
-  font: 11.5px sans-serif;
-  padding: 4px 6px;
+  background: var(--nodino-surface);
+  border: var(--nodino-surface-border);
+  box-shadow: var(--nodino-surface-shadow);
+  -webkit-backdrop-filter: var(--nodino-surface-blur);
+  backdrop-filter: var(--nodino-surface-blur);
+  color: var(--nodino-ink);
+  font: 12px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* 2px top + 6px bottom: the same 8px of vertical padding as before, so the
+     max-height arithmetic below is unchanged. */
+  padding: 2px 8px 6px;
   z-index: 20;
   /* Bottom margin to match the panel's own 6px side margin (`right: 6px`
-     above): top offset (40px) + this box's own padding (4px top + 4px
-     bottom, box-sizing here is the default content-box so max-height
-     doesn't include it) + the 6px margin itself = 54px subtracted from the
-     container's height. Keep in sync with `top` above, which is itself
-     derived from --nodino-chrome-height. */
-  max-height: calc(100% - 54px);
+     above): top offset (40px) + this box's own padding and border (8px of
+     padding in total, plus 1px of border at each end; box-sizing here is
+     the default content-box, so max-height doesn't include them) + the 6px
+     margin itself = 56px
+     subtracted from the container's height. Keep in sync with `top` above,
+     which is itself derived from --nodino-chrome-height. */
+  max-height: calc(100% - 56px);
   overflow-y: auto;
   overflow-x: hidden;
   /* Reserves the scrollbar's track up front instead of only once content
@@ -79,9 +170,9 @@
      exact px width there); Chromium/WebKit get the real 4px via the
      ::-webkit-scrollbar rules below. */
   scrollbar-width: thin;
-  scrollbar-color: rgb(75 75 139 / 50%) transparent;
-  border-radius: 4px;
-  width: 220px;
+  scrollbar-color: var(--nodino-scrollbar) transparent;
+  border-radius: 6px;
+  width: 250px;
 }
 
 .nodino-debug-panel::-webkit-scrollbar {
@@ -93,42 +184,84 @@
 }
 
 .nodino-debug-panel::-webkit-scrollbar-thumb {
-  background: rgb(75 75 139 / 50%);
+  background: var(--nodino-scrollbar);
   border-radius: 4px;
 }
 
-.nodino-debug-panel details {
-  /*margin: 2px 0;*/
+/* Inside the panel: the same language as demo.html's own panel —
+   hairline-separated sections rather than white bars, small
+   headers with a drawn chevron, light fields with a focus ring — so the two
+   panels on either side of the screen read as one design. Rows stay
+   label-left, control-right rather than label-above as in the demo: this
+   panel has dozens of fields, and stacking them would double its height. */
+/* (The panel's palette lives on :root with the rest — see the top of this
+   file — so a theme can recolour it together with every other menu.) */
+
+/* No line above the first section: the panel's own border is already there. */
+.nodino-debug-panel details + details {
+  border-top: 1px solid var(--nodino-line);
 }
 
-    .nodino-debug-panel summary {
-        cursor: pointer;
-        padding: 5px 6px;
-        font-weight: bold;
-        user-select: none;
-        background: hsl(0deg 0% 100% / 95%);
-        color: rgb(25 25 57);
-        border-radius: 5px;
-        margin: 3px 0;
-    }
-        
+.nodino-debug-panel summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--nodino-ink-soft);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
 
-/* Body of a collapsible group: padding-top separates it from the summary
-   heading above, padding-bottom from the next group's heading below. */
+.nodino-debug-panel summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Drawn rather than the UA marker, which differs per browser and cannot be
+   coloured to match. Points right when closed, down when open. */
+.nodino-debug-panel summary::before {
+  content: '';
+  flex: none;
+  width: 5px;
+  height: 5px;
+  margin: 0 2px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.nodino-debug-panel details[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+.nodino-debug-panel summary:hover,
+.nodino-debug-panel details[open] > summary {
+  color: var(--nodino-ink);
+}
+
+/* Body of a collapsible group: no top padding, the summary's own already
+   separates it from the heading; bottom padding from the next section's
+   hairline. */
 .nodino-debug-panel .nodino-group-body {
-  padding-top: 3px;
-  padding-bottom: 3px;
+  padding: 0 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .nodino-debug-panel .nodino-row {
-  margin: 2px 0;
-  padding: 0 4px;
+  padding: 0 2px;
   /* Label stays left, the control (single remaining flex child) gets
      pushed to the row's right edge — reads as a right-aligned column of
      controls instead of hugging the label on the left. */
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 6px;
 }
 
 /* Takes the row's leftover width rather than a fixed 120px: the "?" badge
@@ -150,27 +283,111 @@
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: rgb(75 75 139 / 18%);
-  color: rgb(25 25 57 / 65%);
+  background: var(--nodino-help-bg);
+  color: var(--nodino-ink-muted);
   font-size: 9px;
-  font-weight: bold;
+  font-weight: 600;
   line-height: 12px;
   text-align: center;
   user-select: none;
 }
 
+/* 24px rather than the demo's 28px: the same field, sized for a panel that
+   is a long column of them. */
 .nodino-debug-panel input[type="number"],
 .nodino-debug-panel input[type="text"],
 .nodino-debug-panel select {
-  width: 64px;
-  background: rgba(255, 255, 255, 0.6);
-  border: 1px solid rgb(75 75 139 / 35%);
-  border-radius: 4px;
-  color: rgb(25 25 57);
-  padding: 2px 3px;
+  flex: none;
+  box-sizing: border-box;
+  width: 70px;
+  height: 24px;
+  padding: 2px 6px;
+  background: var(--nodino-field-bg);
+  border: 1px solid var(--nodino-field-border);
+  border-radius: 6px;
+  color: var(--nodino-ink);
+  font: inherit;
+  outline: none;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
 
-/* The top-centre row: geometry toggle, then view-mode toggle. The centering
+.nodino-debug-panel input:focus,
+.nodino-debug-panel select:focus {
+  border-color: var(--nodino-accent);
+  box-shadow: 0 0 0 3px var(--nodino-focus);
+}
+
+/* The theme picker holds names, not numbers: wider than the 70px column. */
+.nodino-debug-panel select.nodino-theme-select {
+  width: 130px;
+}
+
+/* An action in the panel (Apply Theme): the full row, in the same field
+   language as the inputs — a panel of controls, not a second toolbar. */
+.nodino-debug-panel .nodino-panel-button {
+  flex: 1;
+  height: 24px;
+  padding: 0 10px;
+  background: var(--nodino-field-bg);
+  border: 1px solid var(--nodino-field-border);
+  border-radius: 6px;
+  color: var(--nodino-ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.nodino-debug-panel .nodino-panel-button:hover {
+  border-color: var(--nodino-accent);
+}
+
+.nodino-debug-panel .nodino-panel-button:focus-visible {
+  outline: none;
+  border-color: var(--nodino-accent);
+  box-shadow: 0 0 0 3px var(--nodino-focus);
+}
+
+/* Copy Config at the foot of the panel: what happened to the last copy, and
+   — when the clipboard is out of reach — the JSON itself, read-only, to copy
+   by hand. Monospace and a few lines tall: it is code to paste. */
+.nodino-debug-panel .nodino-copy-status {
+  padding: 2px 2px 0;
+  font-size: 11px;
+  color: var(--nodino-ink-muted);
+}
+
+.nodino-debug-panel .nodino-copy-status:empty {
+  display: none;
+}
+
+.nodino-debug-panel .nodino-config-json {
+  box-sizing: border-box;
+  width: 100%;
+  height: 120px;
+  margin-top: 4px;
+  padding: 6px;
+  resize: vertical;
+  background: var(--nodino-field-bg);
+  border: 1px solid var(--nodino-field-border);
+  border-radius: 6px;
+  color: var(--nodino-ink);
+  font: 11px/1.4 ui-monospace, monospace;
+  outline: none;
+}
+
+.nodino-debug-panel .nodino-config-json:focus {
+  border-color: var(--nodino-accent);
+  box-shadow: 0 0 0 3px var(--nodino-focus);
+}
+
+/* Reset-only fields while a run is going (setRunning() in nodino.js): the
+   UA's own disabled look is a different grey per browser. */
+.nodino-debug-panel input:disabled {
+  background: var(--nodino-field-disabled-bg);
+  color: var(--nodino-ink-muted);
+  cursor: not-allowed;
+}
+
+/* The top-centre row: geometry, view-mode and labels toggles, then search. The centering
    argument that used to live on .nodino-view-toggle now lives here, and for
    the same reason — no fixed width, so this shrink-wraps to whatever its
    pills actually measure and left:50% + translateX(-50%) centers on exactly
@@ -201,9 +418,13 @@
 
 .nodino-view-toggle {
   order: 3;
-  background: rgb(215 215 230 / 80%);
+  background: var(--nodino-surface);
+  border: var(--nodino-surface-border);
+  box-shadow: var(--nodino-surface-shadow);
+  -webkit-backdrop-filter: var(--nodino-surface-blur);
+  backdrop-filter: var(--nodino-surface-blur);
   border-radius: 6px;
-  padding: 3px;
+  padding: 2px;
   box-sizing: border-box;
   height: var(--nodino-chrome-height);
   display: flex;
@@ -217,9 +438,13 @@
    is not — it grows with the label. */
 .nodino-geometry-toggle {
   order: 2;
-  background: rgb(215 215 230 / 80%);
+  background: var(--nodino-surface);
+  border: var(--nodino-surface-border);
+  box-shadow: var(--nodino-surface-shadow);
+  -webkit-backdrop-filter: var(--nodino-surface-blur);
+  backdrop-filter: var(--nodino-surface-blur);
   border-radius: 6px;
-  padding: 3px;
+  padding: 2px;
   box-sizing: border-box;
   height: var(--nodino-chrome-height);
   display: flex;
@@ -231,11 +456,11 @@
    now content-driven to fit the icon and its label side by side. */
 .nodino-geometry-toggle button {
   cursor: pointer;
-  border: none;
+  border: 1px solid var(--nodino-button-border);
   border-radius: 4px;
   padding: 0 8px;
   background: transparent;
-  color: rgb(25 25 57);
+  color: var(--nodino-ink);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -245,28 +470,28 @@
 }
 
 .nodino-geometry-toggle button.active {
-  background: #ffffff;
+  background: var(--nodino-button-active-bg);
 }
 
 /* The icons inherit their stroke from the button's color, so the inactive
    state is one declaration here rather than a second pair of icons. */
 .nodino-geometry-toggle button:not(.active) {
-  color: rgb(25 25 57 / 55%);
+  color: var(--nodino-ink-soft);
 }
 
 .nodino-view-toggle button {
   cursor: pointer;
-  border: none;
+  border: 1px solid var(--nodino-button-border);
   border-radius: 4px;
   padding: 3px 8px;
   font: 11px sans-serif;
   white-space: nowrap;
   background: transparent;
-  color: rgb(25 25 57);
+  color: var(--nodino-ink);
 }
 
 .nodino-view-toggle button.active {
-  background: #ffffff;
+  background: var(--nodino-button-active-bg);
 }
 
 /* Proximity and Clusters read the layout, so they are only offered while it
@@ -280,7 +505,45 @@
 .nodino-view-toggle button:disabled {
   cursor: default;
   background: transparent;
-  color: rgb(25 25 57 / 35%);
+  color: var(--nodino-ink-disabled);
+}
+
+/* Labels toggle: one eye button flipping config.showNodeLabels, rightmost in
+   the top-centre row — after the reading, since it decides what is written
+   over that reading rather than which one it is. Same pill as its
+   neighbours; icon-only, so the button is square-ish rather than sized to a
+   word, and the struck-through eye plus the dimmed colour say "off" the way
+   the geometry toggle's inactive button does. */
+.nodino-labels-toggle {
+  order: 4;
+  background: var(--nodino-surface);
+  border: var(--nodino-surface-border);
+  box-shadow: var(--nodino-surface-shadow);
+  -webkit-backdrop-filter: var(--nodino-surface-blur);
+  backdrop-filter: var(--nodino-surface-blur);
+  border-radius: 6px;
+  padding: 2px;
+  box-sizing: border-box;
+  height: var(--nodino-chrome-height);
+  display: flex;
+  align-items: stretch;
+}
+
+.nodino-labels-toggle button {
+  cursor: pointer;
+  border: 1px solid var(--nodino-button-border);
+  border-radius: 4px;
+  padding: 0 6px;
+  background: transparent;
+  color: var(--nodino-ink-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nodino-labels-toggle button.active {
+  background: var(--nodino-button-active-bg);
+  color: var(--nodino-ink);
 }
 
 /* Search: the uid box and the autocomplete list under it ([F Search.1]).
@@ -296,15 +559,21 @@
    Order across the row is set here rather than left to insertion order, for
    the reason the top-right row already states: components come and go
    through updateConfig(), and appendChild alone would let a rebuilt one jump
-   to the end. Search sits leftmost because the pair to its right is a pair —
-   which embedding, which reading — and belongs adjacent. */
+   to the end. Search sits rightmost, after the three toggles: the toggles
+   are the row's controls and read left to right as one group (embedding,
+   reading, labels), and the box is the one thing in the row you type into.
+   6 rather than 5 so the narrow tier below can put its line break at 5. */
 .nodino-search {
-  order: 1;
+  order: 6;
   position: relative;
   box-sizing: border-box;
   height: var(--nodino-chrome-height);
-  padding: 3px;
-  background: rgb(215 215 230 / 80%);
+  padding: 2px;
+  background: var(--nodino-surface);
+  border: var(--nodino-surface-border);
+  box-shadow: var(--nodino-surface-shadow);
+  -webkit-backdrop-filter: var(--nodino-surface-blur);
+  backdrop-filter: var(--nodino-surface-blur);
   border-radius: 6px;
   display: flex;
   align-items: stretch;
@@ -320,13 +589,13 @@
   border-radius: 4px;
   padding: 0 6px;
   background: transparent;
-  color: rgb(25 25 57);
+  color: var(--nodino-ink);
   font: 11px sans-serif;
   outline: none;
 }
 
 .nodino-search-input::placeholder {
-  color: rgb(25 25 57 / 45%);
+  color: var(--nodino-ink-faint);
 }
 
 /* Focus is worth showing — this is the one piece of chrome that receives
@@ -335,7 +604,7 @@
    on neither. Filling the input instead marks the pill's interior, in the
    same white the active buttons next door use. */
 .nodino-search-input:focus {
-  background: #ffffff;
+  background: var(--nodino-button-active-bg);
 }
 
 /* Hangs below the box, aligned to its left edge and free to be wider than it:
@@ -354,7 +623,11 @@
   overflow-y: auto;
   box-sizing: border-box;
   padding: 3px;
-  background: rgb(215 215 230 / 92%);
+  background: var(--nodino-surface);
+  border: var(--nodino-surface-border);
+  box-shadow: var(--nodino-surface-shadow);
+  -webkit-backdrop-filter: var(--nodino-surface-blur);
+  backdrop-filter: var(--nodino-surface-blur);
   border-radius: 6px;
   /* Above the canvas and its two detail cards, being the thing that puts one
      of them on screen. */
@@ -370,7 +643,7 @@
   border-radius: 4px;
   padding: 3px 6px;
   font: 11px sans-serif;
-  color: rgb(25 25 57);
+  color: var(--nodino-ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -381,7 +654,7 @@
    on and the row the cursor is on are the same row, and two rules would let
    two of them look chosen at once. */
 .nodino-search-item.nodino-active {
-  background: #ffffff;
+  background: var(--nodino-button-active-bg);
 }
 
 /* Pill holding the always-on button that flips config.debug. Last in the
@@ -402,8 +675,12 @@
   order: 2;
   box-sizing: border-box;
   height: var(--nodino-chrome-height);
-  padding: 3px;
-  background: rgb(215 215 230 / 80%);
+  padding: 2px;
+  background: var(--nodino-surface);
+  border: var(--nodino-surface-border);
+  box-shadow: var(--nodino-surface-shadow);
+  -webkit-backdrop-filter: var(--nodino-surface-blur);
+  backdrop-filter: var(--nodino-surface-blur);
   border-radius: 6px;
   display: flex;
   align-items: stretch;
@@ -413,17 +690,17 @@
    one holds a centred glyph with no label. */
 .nodino-debug-toggle button {
   cursor: pointer;
-  border: none;
+  border: 1px solid var(--nodino-button-border);
   border-radius: 4px;
   padding: 0;
   width: 24px;
   font: 15px sans-serif;
   background: transparent;
-  color: rgb(25 25 57);
+  color: var(--nodino-ink);
 }
 
 .nodino-debug-toggle button.active {
-  background: #ffffff;
+  background: var(--nodino-button-active-bg);
 }
 
 /* Simulation controls — Reset/Run/Pause/Force plus a state readout. First in
@@ -435,11 +712,15 @@
    too and not just its outer shell (see .nodino-debug-toggle). */
 .nodino-sim-controls {
   order: 1;
-  background: rgb(215 215 230 / 80%);
+  background: var(--nodino-surface);
+  border: var(--nodino-surface-border);
+  box-shadow: var(--nodino-surface-shadow);
+  -webkit-backdrop-filter: var(--nodino-surface-blur);
+  backdrop-filter: var(--nodino-surface-blur);
   border-radius: 6px;
   box-sizing: border-box;
   height: var(--nodino-chrome-height);
-  padding: 3px;
+  padding: 2px;
   display: flex;
   gap: 2px;
   align-items: stretch;
@@ -454,7 +735,7 @@
   padding: 0 6px;
   font: 10px/1 ui-monospace, monospace;
   letter-spacing: .02em;
-  color: rgb(75 75 139 / 80%);
+  color: var(--nodino-state-ink);
   white-space: nowrap;
   display: flex;
   align-items: center;
@@ -465,13 +746,13 @@
    sit in the same amount of air. */
 .nodino-sim-controls button {
   cursor: pointer;
-  border: none;
+  border: 1px solid var(--nodino-button-border);
   border-radius: 4px;
   padding: 0 8px;
   font: 11px sans-serif;
   white-space: nowrap;
-  background: #ffffff;
-  color: rgb(25 25 57);
+  background: var(--nodino-button-bg);
+  color: var(--nodino-ink);
   display: flex;
   align-items: center;
   gap: 4px;
@@ -483,8 +764,8 @@
    alone reads as a style choice at this size rather than as "off". */
 .nodino-sim-controls button:disabled {
   cursor: default;
-  background: rgb(255 255 255 / 25%);
-  color: rgb(25 25 57 / 35%);
+  background: var(--nodino-button-disabled-bg);
+  color: var(--nodino-ink-disabled);
 }
 
 /* Slightly larger than the label beside it: these glyphs (↺ ▶ ❙❙ ▶❙) render
@@ -509,14 +790,14 @@
   pointer-events: none;
   display: none;
   box-sizing: border-box;
-  background: rgb(255 255 255 / 90%);
-  color: rgb(25 25 57);
-  border: 2px solid rgb(75 75 139 / 45%);
+  background: var(--nodino-card-bg);
+  color: var(--nodino-ink);
+  border: 2px solid var(--nodino-card-border);
   /* 6px, not the pills' 4px: a 2px border makes a 4px radius look squared
      off at the corners, the inner curve being 4 - 2 = 2px. */
   border-radius: 6px;
   padding: 6px 8px;
-  box-shadow: 0 2px 8px rgb(25 25 57 / 12%);
+  box-shadow: 0 2px 8px var(--nodino-card-shadow);
   font: 11px/1.4 sans-serif;
   max-width: 260px;
   z-index: 20;
@@ -539,9 +820,9 @@
   pointer-events: auto;
   cursor: default;
   z-index: 21;
-  background: rgb(255 255 255);
-  border-color: rgb(75 75 139 / 90%);
-  box-shadow: 0 3px 12px rgb(25 25 57 / 22%);
+  background: var(--nodino-card-pinned-bg);
+  border-color: var(--nodino-card-pinned-border);
+  box-shadow: 0 3px 12px var(--nodino-card-pinned-shadow);
 }
 
 /* The uid, and the panel's whole default content. Bold because it is a
@@ -571,7 +852,7 @@
   z-index: 15;
   pointer-events: none;
   font: 10px sans-serif;
-  color: rgb(25 25 57 / 40%);
+  color: var(--nodino-ink-faint);
   white-space: nowrap;
 }
 
@@ -592,7 +873,7 @@
   right: 0;
   bottom: 0;
   height: 3px;
-  background: #cfcfe2;
+  background: var(--nodino-progress);
   transform-origin: left;
   z-index: 15;
   pointer-events: none;
@@ -603,8 +884,8 @@
    window. Everything below is scoped inside a max-width query, so none of it
    changes anything above this line — desktop stays exactly as it was. Two
    tiers: a 1200-or-narrower one that shrinks pills in place and moves them
-   off the top edge, and a narrower one still where the top-centre row stops
-   fitting on one line at any shrink factor and stacks instead.
+   off the top edge, and a 600-or-narrower one where the top-centre row stops
+   fitting on one line and wraps onto two instead.
    =========================================================================== */
 
 @media (max-width: 1200px) {
@@ -613,10 +894,14 @@
      next to it once the window is this narrow. The label collapses to zero
      width via font-size rather than leaving the DOM, so the tap target and
      the title tooltip are both unaffected — only the printed word
-     disappears. */
+     disappears. The label is still a flex item, though — zero wide, but
+     the 4px gap before it survives, which left the glyph off-centre with
+     an empty strip on its right. Gap dropped and the glyph centred. */
   .nodino-sim-controls button {
     font-size: 0;
     padding: 0 6px;
+    gap: 0;
+    justify-content: center;
   }
 
   .nodino-sim-controls .nodino-sim-glyph {
@@ -632,12 +917,14 @@
     text-overflow: ellipsis;
   }
 
+  /* Still sharing its line with the three toggles, so short of the 200px
+     the narrow tier below gives a box with a line to itself. */
   .nodino-search-input {
-    width: 90px;
+    width: 150px;
   }
 
   .nodino-debug-panel {
-    width: min(220px, 62vw);
+    width: min(250px, 62vw);
   }
 
   /* Moved off the top edge, which the search/geometry/view row now has to
@@ -659,24 +946,50 @@
   .nodino-debug-panel {
     top: auto;
     bottom: 64px;
-    max-height: calc(100% - 78px);
+    max-height: calc(100% - 80px);
   }
 }
 
-@media (max-width: 480px) {
-  /* Below this width even the compacted row above cannot fit all three
-     pills — search, geometry toggle, view toggle — on one line without
-     clipping against the screen edge. Stacked instead, each centered on its
-     own line in the same top-to-bottom order the `order` values already
-     give it left-to-right, so no width down here has to fit all three at
-     once. */
+@media (max-width: 600px) {
+  /* Below this width even the compacted row above cannot fit all four
+     pills on one line without clipping against the screen edge. Two lines
+     instead: the three toggles centred on the first, the search box centred
+     on the second.
+
+     The row spans the full width here (left/right 0, no translate) rather
+     than shrink-wrapping: an absolutely positioned box anchored at left: 50%
+     only has the right half of the screen to shrink-wrap into, which would
+     wrap the toggles themselves. Spanning the width, it would also swallow
+     every tap along the top of the canvas — hence pointer-events: none on the
+     row and auto on what is actually in it. */
   .nodino-view-row {
-    flex-direction: column;
-    align-items: center;
+    left: 0;
+    right: 0;
+    transform: none;
+    flex-wrap: wrap;
+    justify-content: center;
     gap: 4px;
+    pointer-events: none;
+  }
+
+  .nodino-view-row > * {
+    pointer-events: auto;
+  }
+
+  /* The line break: a zero-height item taking a whole line, between the
+     toggles (order 2-4) and the search box (order 6). Whatever toggles are
+     hidden, the box still lands on a line of its own. The negative margin
+     cancels the row-gap the empty line adds, so the two visible lines are
+     one gap apart, not two. */
+  .nodino-view-row::after {
+    content: '';
+    order: 5;
+    flex-basis: 100%;
+    height: 0;
+    margin-top: -4px;
   }
 
   .nodino-search-input {
-    width: 150px; /* the row is no longer shared, so this can afford more */
+    width: 200px; /* a line of its own, so this can afford more */
   }
 }

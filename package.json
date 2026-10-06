@@ -1,6 +1,6 @@
 {
   "name": "@efchi/nodino",
-  "version": "2.0.0",
+  "version": "2.4.12",
   "description": "A deterministic, dependency-free 2D & 3D force-directed graph viewer for the browser.",
   "keywords": [
     "graph",
@@ -23,26 +23,49 @@
     "url": "https://github.com/efchi/nodino/issues"
   },
   "main": "nodino.js",
+  "module": "nodino.mjs",
   "types": "nodino.d.ts",
   "style": "nodino.css",
   "exports": {
     ".": {
-      "types": "./nodino.d.ts",
-      "default": "./nodino.js"
+      "import": {
+        "types": "./nodino.d.mts",
+        "default": "./nodino.mjs"
+      },
+      "require": {
+        "types": "./nodino.d.ts",
+        "default": "./nodino.js"
+      }
     },
     "./nodino.css": "./nodino.css",
+    "./nodino.min.css": "./nodino.min.css",
     "./package.json": "./package.json"
   },
+  "unpkg": "nodino.min.js",
+  "jsdelivr": "nodino.min.js",
   "files": [
     "nodino.js",
+    "nodino.mjs",
+    "nodino.min.js",
+    "nodino.min.mjs",
     "nodino.css",
+    "nodino.min.css",
     "nodino.d.ts",
-    "API-DOCS.md",
-    "logo.svg"
+    "nodino.d.mts",
+    "API-DOCS.md"
   ],
   "sideEffects": [
     "*.css"
   ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test tests/*.test.js",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "devDependencies": {
+    "lightningcss": "^1.33.0",
+    "terser": "^5.51.2"
+  },
   "publishConfig": {
     "access": "public"
   }

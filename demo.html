@@ -26,7 +26,24 @@
             inset: 0;
         }
 
+        /* The demo panel's palette, in one place. Same family as Nodino's own
+           chrome (nodino.css) — the lavender glass and the dark-blue ink — so
+           the page reads as one product, but with one accent the widget never
+           needs: the filled primary button, marking the single action each
+           group exists for. */
         #toolbar {
+            /* Nodino's own palette (nodino.css), so this panel follows the
+               theme too: the script below copies the graph's
+               nodino-theme-* class onto it. */
+            --ink: var(--nodino-ink);
+            --ink-muted: var(--nodino-ink-muted);
+            --line: var(--nodino-line);
+            --field-border: var(--nodino-field-border);
+            --field-bg: var(--nodino-field-bg);
+            --accent: var(--nodino-accent);
+            --accent-hover: var(--nodino-accent-hover);
+            --focus: var(--nodino-focus);
+
             position: absolute;
             /* Top-left: Nodino's own chrome has moved to the right-hand side
                (simulation controls + ⚙ toggle on the top row, debug panel
@@ -34,18 +51,51 @@
             top: 6px;
             left: 6px;
             z-index: 30;
-            background: rgb(215 215 230 / 80%);
-            color: rgb(25 25 57);
-            border-radius: 6px;
-            padding: 6px;
-            width: 220px;
+            width: 240px;
             box-sizing: border-box;
+            padding: 2px 8px 6px;
+            /* Nodino's own menu surface (nodino.css :root), so this panel and
+               the widget's chrome are one family by construction rather than
+               by copied values. 6px is the radius of every one of them. */
+            background: var(--nodino-surface);
+            border: var(--nodino-surface-border);
+            box-shadow: var(--nodino-surface-shadow);
+            -webkit-backdrop-filter: var(--nodino-surface-blur);
+            backdrop-filter: var(--nodino-surface-blur);
+            border-radius: 6px;
+            color: var(--ink);
+            font: 12px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
             /* Bounded and scrollable rather than left to grow past the
                window: harmless at any desktop size this panel's content has
                ever reached, but a phone in landscape is short enough that
                three open groups would otherwise run under the fold. */
             max-height: calc(100vh - 12px);
             overflow-y: auto;
+        }
+
+        /* Hidden until the script below has decided whether the panel starts
+           collapsed, then revealed by adding .ready. Without it a narrow
+           window painted the panel expanded first and collapsed it a moment
+           later — the script runs after the page has already been drawn
+           once. visibility rather than display, so the panel already has its
+           final size when it appears. */
+        #toolbar:not(.ready) {
+            visibility: hidden;
+        }
+
+        /* --- Header: the name and (narrow windows only) the collapse
+           button. No bar behind it: a title is not a control, and drawing it
+           like the group headers made the panel a stack of identical white
+           strips with nothing to say which one to read. */
+        #toolbar h1 {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 0;
+            padding: 6px 0 8px 4px;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.01em;
         }
 
         /* Shown only under the responsive query below; collapses/expands the
@@ -56,15 +106,359 @@
             display: none;
             margin-left: auto;
             flex: none;
-            width: 20px;
-            height: 20px;
+            width: 22px;
+            height: 22px;
             padding: 0;
             border: none;
+            border-radius: 6px;
+            background: var(--nodino-button-active-bg);
+            color: var(--ink);
+            cursor: pointer;
+        }
+
+        /* Drawn rather than typed: a ▾/▸ glyph sits wherever its font puts
+           its baseline, which is never the middle of a 22px box. Same
+           chevron as the group headers, pointing down while the panel is
+           open and right once it is collapsed. The nudge recentres it
+           optically — a rotated corner's visual centre is off its box's. */
+        #toolbar-toggle::before {
+            content: '';
+            width: 5px;
+            height: 5px;
+            border-right: 1.5px solid currentColor;
+            border-bottom: 1.5px solid currentColor;
+            transform: translateY(-1px) rotate(45deg);
+            transition: transform 0.15s ease;
+        }
+
+        #toolbar.collapsed #toolbar-toggle::before {
+            transform: translateX(-1px) rotate(-45deg);
+        }
+
+
+        /* Shown only on the collapsed narrow-window bar, see below. */
+        .toolbar-title-collapsed {
+            display: none;
+        }
+
+        /* --- Groups: hairline-separated sections rather than boxed bars.
+           The header carries a chevron of our own — the UA marker differs
+           per browser and cannot be coloured to match. */
+        #toolbar details {
+            border-top: 1px solid var(--line);
+        }
+
+        /* Light | Dark, the full width of the panel under its title: the
+           page-level choice of theme, so it comes before the data groups.
+           Drawn like Nodino's own toggles (nodino.css) — a segmented pill,
+           the active half lifted — out of the same palette, so it changes
+           with the theme it picks. */
+        #theme-toggle {
+            display: flex;
+            gap: 2px;
+            margin: 0 0 8px;
+            padding: 2px;
+            box-sizing: border-box;
+            height: 28px;
+            /* The pill of Nodino's own toggles — same surface, same border —
+               so the inactive half reads as the menus' colour, not as a
+               lighter field; only the active half is lifted. */
+            border: var(--nodino-surface-border);
+            border-radius: 6px;
+            background: var(--nodino-surface);
+        }
+
+        #theme-toggle button {
+            flex: 1;
+            border: 1px solid transparent;
             border-radius: 4px;
             background: transparent;
-            color: rgb(25 25 57);
-            font: 12px sans-serif;
+            color: var(--nodino-ink-soft);
+            font: inherit;
+            font-weight: 500;
             cursor: pointer;
+        }
+
+        #theme-toggle button.active {
+            background: var(--nodino-button-active-bg);
+            border-color: var(--nodino-button-border);
+            color: var(--ink);
+        }
+
+        #theme-toggle button:focus-visible {
+            outline: none;
+            box-shadow: 0 0 0 3px var(--focus);
+        }
+
+        #toolbar summary {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 2px;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            color: var(--nodino-ink-soft);
+            cursor: pointer;
+            user-select: none;
+            list-style: none;
+        }
+
+        #toolbar summary::-webkit-details-marker {
+            display: none;
+        }
+
+        #toolbar summary::before {
+            content: '';
+            width: 5px;
+            height: 5px;
+            border-right: 1.5px solid currentColor;
+            border-bottom: 1.5px solid currentColor;
+            transform: rotate(-45deg);
+            transition: transform 0.15s ease;
+            margin: 0 2px;
+        }
+
+        #toolbar details[open] > summary::before {
+            transform: rotate(45deg);
+        }
+
+        #toolbar summary:hover,
+        #toolbar details[open] > summary {
+            color: var(--ink);
+        }
+
+        #toolbar .group-body {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding: 0 2px 10px;
+        }
+
+        /* --- Fields: label above input, so every input gets the full width
+           of its column and the label never has to be squeezed beside it. */
+        #toolbar .fields {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        #toolbar .field {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            min-width: 0;
+        }
+
+        #toolbar .field > span {
+            font-size: 11px;
+            color: var(--ink-muted);
+        }
+
+        #toolbar input[type=number],
+        #toolbar input[type=text],
+        #toolbar select,
+        #toolbar textarea {
+            box-sizing: border-box;
+            width: 100%;
+            min-width: 0;
+            padding: 4px 7px;
+            background: var(--field-bg);
+            border: 1px solid var(--field-border);
+            border-radius: 6px;
+            color: var(--ink);
+            font: inherit;
+            outline: none;
+            transition: border-color 0.12s ease, box-shadow 0.12s ease;
+        }
+
+        #toolbar input[type=number],
+        #toolbar input[type=text],
+        #toolbar select {
+            height: 28px;
+        }
+
+        #toolbar input::placeholder,
+        #toolbar textarea::placeholder {
+            color: var(--nodino-ink-faint);
+        }
+
+        #toolbar input:focus,
+        #toolbar select:focus,
+        #toolbar textarea:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--focus);
+        }
+
+        #toolbar input.invalid {
+            border-color: rgb(200 0 0 / 70%);
+            box-shadow: 0 0 0 3px rgb(200 0 0 / 15%);
+        }
+
+        #toolbar textarea {
+            height: 84px;
+            resize: vertical;
+            font: 11px/1.4 ui-monospace, "Cascadia Mono", Consolas, monospace;
+        }
+
+        /* --- Buttons: secondary by default (the ways of getting data into a
+           group), one filled primary per group (the action it exists for). */
+        #toolbar .row {
+            display: flex;
+            gap: 6px;
+        }
+
+        /* Buttons sharing a row split it evenly, so the row keeps a
+           straight right edge whatever the labels say. */
+        #toolbar .row > button {
+            flex: 1;
+            min-width: 0;
+        }
+
+        #toolbar .group-body button {
+            height: 28px;
+            padding: 0 10px;
+            background: var(--field-bg);
+            border: 1px solid var(--field-border);
+            border-radius: 6px;
+            color: var(--ink);
+            font: inherit;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            cursor: pointer;
+            transition: background 0.12s ease, border-color 0.12s ease;
+        }
+
+        #toolbar .group-body button:hover {
+            background: var(--nodino-button-active-bg);
+            border-color: var(--nodino-card-border);
+        }
+
+        #toolbar .group-body button.primary {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: var(--nodino-accent-ink);
+        }
+
+        #toolbar .group-body button.primary:hover {
+            background: var(--accent-hover);
+            border-color: var(--accent-hover);
+        }
+
+        #toolbar .group-body button:focus-visible {
+            outline: none;
+            box-shadow: 0 0 0 3px var(--focus);
+        }
+
+        /* The seed the graph on screen was generated from. Selectable on
+           purpose: copying a random seed into the field above is how a
+           graph worth keeping is regenerated later. */
+        #toolbar .note {
+            margin-top: -2px;
+            font-size: 11px;
+            color: var(--ink-muted);
+            user-select: text;
+        }
+
+        #toolbar .note:empty {
+            display: none;
+        }
+
+        /* A collapsible inside a group (the preset's description): the group
+           headers' markup, scaled down to read as a link rather than as a
+           fourth group. */
+        #toolbar details.info {
+            border-top: none;
+            margin-top: -2px;
+        }
+
+        #toolbar details.info > summary {
+            padding: 0;
+            font-weight: 500;
+            letter-spacing: normal;
+            color: var(--ink-muted);
+        }
+
+        /* + / − instead of the groups' chevron, so it doesn't read as one
+           more group header. A fixed width keeps the label from shifting
+           when the sign changes. */
+        #toolbar details.info > summary::before {
+            content: '+';
+            width: 8px;
+            height: auto;
+            margin: 0;
+            border: none;
+            transform: none;
+            transition: none;
+            text-align: center;
+            font-weight: 600;
+        }
+
+        #toolbar details.info[open] > summary::before {
+            content: '\2212';
+            transform: none;
+        }
+
+        #toolbar details.info > summary:hover,
+        #toolbar details.info[open] > summary {
+            color: var(--ink);
+        }
+
+        #toolbar details.info > .note {
+            margin-top: 6px;
+        }
+
+        /* On every page load: Run pulses until the simulation is started, since
+           load() never starts it and a visitor otherwise sees a
+           still graph with nothing saying what to press. Hooked from here,
+           on a class on the graph container, rather than on the button
+           itself: Nodino rebuilds its controls when showSimControls is
+           toggled, and a selector survives that where a reference would not.
+           Run is the first button of the bar (the state readout before it is
+           a span). Width-independent: the same on desktop and mobile. */
+        @keyframes demo-run-hint {
+            0%   { box-shadow: 0 0 0 0 rgba(59, 105, 246, 0.5); }
+            70%  { box-shadow: 0 0 0 8px rgba(59, 105, 246, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(59, 105, 246, 0); }
+        }
+
+        #graph.demo-run-hint .nodino-sim-controls button:first-of-type:not(:disabled) {
+            outline: 2px solid #3b69f6f5;
+            outline-offset: 0;
+            animation: demo-run-hint 1.6s ease-out infinite;
+        }
+
+        /* Reduced motion: the outline alone, still. */
+        @media (prefers-reduced-motion: reduce) {
+            #graph.demo-run-hint .nodino-sim-controls button:first-of-type:not(:disabled) {
+                animation: none;
+            }
+        }
+
+        /* Preset-only mode (?preset=<id>): a link to one dataset, so the
+           panel keeps only the theme and says which preset this is — the
+           data groups are hidden, not removed, and the page works as ever
+           underneath. */
+        #preset-only-name {
+            display: none;
+            margin: 0 2px 8px;
+            font-size: 12px;
+            color: var(--ink-muted);
+        }
+
+        #preset-only-name b {
+            color: var(--ink);
+            font-weight: 600;
+        }
+
+        #toolbar.preset-only > details {
+            display: none;
+        }
+
+        #toolbar.preset-only > #preset-only-name {
+            display: block;
         }
 
         /* Below 1200px: the panel takes over a good chunk of an already-
@@ -75,18 +469,16 @@
            tap away. */
         @media (max-width: 1200px) {
             #toolbar {
-                width: min(220px, 72vw);
-                /* Moved off the top edge, which the top-centre row (search +
-                   geometry + view toggle) now has to itself instead of
-                   sharing with this panel diagonally across from Nodino's own
-                   chrome — two unrelated panels anchored to the two top
-                   corners of an already-narrow screen was the actual
-                   crowding. Bottom instead of top, same corner (left) — 30px
-                   rather than 6px so the panel clears .nodino-time, which
+                width: min(240px, 72vw);
+                /* Moved off the top edge, which the top-centre row now has to
+                   itself instead of sharing with this panel diagonally across
+                   from Nodino's own chrome — two unrelated panels anchored to
+                   the two top corners of an already-narrow screen was the
+                   actual crowding. Bottom instead of top, same corner (left) —
+                   30px rather than 6px so the panel clears .nodino-time, which
                    still sits at its usual bottom: 8px here. max-height's
-                   budget shrinks by the 24px this offset gained over the old
-                   6px (12 -> 42), so an expanded panel still fits above
-                   whatever is below it rather than the two ever overlapping. */
+                   budget shrinks by the same amount, so an expanded panel
+                   still fits above whatever is below it. */
                 top: auto;
                 bottom: 30px;
                 max-height: calc(100vh - 42px);
@@ -102,142 +494,34 @@
                 width: auto;
                 max-height: none;
                 overflow: visible;
+                padding-bottom: 4px;
             }
 
-            #toolbar.collapsed > details {
+            #toolbar.collapsed > details,
+            #toolbar.collapsed > #theme-toggle,
+            #toolbar.collapsed > #preset-only-name {
                 display: none;
             }
 
-            /* h1's own margin-bottom (8px, set below) is larger than its
-               margin-top (3px) on purpose — it separates the title from the
-               groups under it. Collapsed, there are no groups left to
-               separate from, so it fell back to the summary bars' own
-               symmetric 3px, matching the top and making the collapsed bar's
-               padding read as even top-to-bottom instead of bottom-heavy. */
+            /* The header's bottom padding separates it from the groups;
+               collapsed there are none, so it evens out top and bottom. */
             #toolbar.collapsed h1 {
-                margin-bottom: 3px;
+                padding-bottom: 6px;
             }
 
-            /* Collapsed, the bar is just the logo and the toggle — the title
-               text is what was making the bar wide enough to run under
-               Nodino's own chrome (top-centre row / right-hand controls),
-               which this corner's bar sits above on a narrow window. Hidden
-               rather than removed, so expanding brings it straight back with
-               no DOM change. */
+            /* Collapsed, the bar says just "Nodino" beside the toggle — the
+               full title is what was making the bar wide enough to run under
+               Nodino's own chrome, which this corner's bar sits above on a
+               narrow window. Both titles are always in the DOM and swapped
+               here, so expanding brings the full one straight back. */
             #toolbar.collapsed h1 .toolbar-title {
                 display: none;
             }
+
+            #toolbar.collapsed h1 .toolbar-title-collapsed {
+                display: inline;
+            }
         }
-
-            /* Heading and group headers share one look — the heading is just
-               the first, non-collapsible one — so the panel reads as a single
-               stack of bars rather than a title plus some widgets. Only the
-               font-size sets it apart. Mirrors the debug panel's own summary
-               styling on the other side of the screen. */
-            
-            #toolbar summary {
-                background: hsl(0deg 0% 100% / 95%);
-                color: rgb(25 25 57);
-                border-radius: 5px;
-                padding: 5px 6px;
-                margin: 3px 0;
-                font-weight: bold;
-            }
-
-            /* The heading is the one bar that is not a <summary>, so it takes
-               the summary's own background and radius explicitly — without
-               them it was the single transparent row in a stack of white
-               ones, which read as a caption floating above the panel rather
-               than as its first bar. Only the font-size and the mark to its
-               left set it apart now.
-
-               Larger bottom margin than a summary's 3px: it separates the
-               title from the groups, which are a set among themselves. */
-            #toolbar h1 {
-                font-size: 11pt;
-                padding: 5px 6px;
-                margin: 3px 0 8px 0;
-                font-weight: bold;
-                background: hsl(0deg 0% 100% / 60%);
-                border-radius: 5px;
-                display: flex;
-                align-items: center;
-                gap: 6px;
-            }
-
-            /* flex: none because a flex item holding the mark will otherwise
-               be squashed by a long title. logo.svg carries its own colours
-               (it has to — it's shared with README.md, outside this page's
-               palette), so there is no currentColor rule to set here
-               any more. */
-            #toolbar h1 img {
-                flex: none;
-                display: block;
-            }
-
-            #toolbar summary {
-                font-size: 9pt;
-                cursor: pointer;
-                user-select: none;
-            }
-
-            /* Padding-top separates a group's contents from its own header,
-               padding-bottom from the next group's header below. */
-            #toolbar .group-body {
-                padding: 3px 2px;
-            }
-
-            #toolbar .row {
-                margin: 2px 0;
-                display: flex;
-                gap: 4px;
-                align-items: center;
-            }
-
-            #toolbar input[type=number],
-            #toolbar select,
-            #toolbar textarea {
-                background: rgba(255, 255, 255, 0.6);
-                border: 1px solid rgb(75 75 139 / 35%);
-                border-radius: 4px;
-                color: rgb(25 25 57);
-            }
-
-            #toolbar input[type=number] {
-                width: 60px;
-                padding: 2px 3px;
-            }
-
-            #toolbar select {
-                flex: 1;
-                padding: 2px 3px;
-                font-size: 9pt;
-            }
-
-            /* Buttons sharing a row split it evenly, so the row keeps a
-               straight right edge whatever the labels say. */
-            #toolbar .row button {
-                flex: 1;
-            }
-
-            #toolbar button {
-                cursor: pointer;
-                padding: 2px 4px;
-                background: rgba(255, 255, 255, 0.6);
-                border: 1px solid rgb(75 75 139 / 35%);
-                border-radius: 4px;
-                color: rgb(25 25 57);
-            }
-
-            #toolbar textarea {
-                width: 100%;
-                height: 60px;
-                box-sizing: border-box;
-                font-family: monospace;
-                font-size: 8pt;
-                margin-top: 4px;
-                padding: 2px 3px;
-            }
 
         /* Spinner shown in either detail card while this page's (simulated)
            fetch is in flight. It lives here, not in nodino.css, because Nodino
@@ -249,16 +533,45 @@
             width: 11px;
             height: 11px;
             box-sizing: border-box;
-            border: 2px solid rgb(75 75 139 / 20%);
+            border: 2px solid var(--nodino-line);
             /* One coloured arc against a faint ring, so the rotation reads at
                this size — a uniform ring would look static while spinning. */
-            border-top-color: rgb(75 75 139 / 70%);
+            border-top-color: var(--nodino-state-ink);
             border-radius: 50%;
             animation: demo-spin .6s linear infinite;
         }
 
         @keyframes demo-spin {
             to { transform: rotate(360deg); }
+        }
+
+        /* A preset's node image (m.image), at its own size above the title.
+           pixelated keeps a sprite's pixel art crisp should the browser ever
+           scale it (a zoomed page, a high-density screen). */
+        .demo-card-image {
+            display: block;
+            margin: 0 auto 2px;
+            image-rendering: pixelated;
+        }
+
+        /* A photo the preset asks to show at a set width (m.imageWidth),
+           served larger for high-density screens: scaled down, so smoothed —
+           pixelated is only right for pixel art. */
+        .demo-card-image.photo {
+            height: auto;
+            border-radius: 4px;
+            image-rendering: auto;
+        }
+
+        /* A preset's link to a page about the node, beside Copy uid. */
+        .demo-link {
+            margin-left: 4px;
+            color: var(--nodino-accent);
+            text-decoration: none;
+        }
+
+        .demo-link:hover {
+            text-decoration: underline;
         }
 
         /* The action this page puts in the *pinned* card only — the hovering
@@ -270,10 +583,10 @@
             margin-top: 4px;
             padding: 1px 5px;
             font: inherit;
-            background: rgba(255, 255, 255, 0.6);
-            border: 1px solid rgb(75 75 139 / 35%);
+            background: var(--nodino-field-bg);
+            border: 1px solid var(--nodino-field-border);
             border-radius: 4px;
-            color: rgb(25 25 57);
+            color: var(--nodino-ink);
         }
     </style>
 </head>
@@ -286,31 +599,66 @@
          genuinely the host's: where the data comes from. Its three groups are
          therefore the three data sources, one collapsible each. -->
     <div id="toolbar">
-        <!-- The project's own mark (logo.svg, also at the top of README.md)
-             rather than a bespoke currentColor icon: one drawing of "the
-             boundary disk with a small graph inside it" instead of two to
-             keep in sync. -->
         <h1>
-            <img src="logo.svg" width="18" height="18" alt="" aria-hidden="true" />
-            <!-- Wrapped so the collapsed-mobile rule above can hide just the
-                 text, leaving the logo and toggle as the whole bar. -->
+            <!-- Two titles, swapped by the collapsed-mobile rule above: the
+                 full name while the panel is open, a short "Nodino" on the
+                 collapsed bar. -->
             <span class="toolbar-title">Nodino Demo</span>
+            <span class="toolbar-title-collapsed">Nodino</span>
             <!-- Mobile-only (see #toolbar-toggle in the style block above) —
                  collapses/expands the panel body below. Invisible and inert
                  on desktop, so nothing here changes desktop behavior. -->
-            <button id="toolbar-toggle" type="button" title="Collapse panel">▾</button>
+            <button id="toolbar-toggle" type="button" title="Collapse panel" aria-label="Collapse panel" aria-expanded="true"></button>
         </h1>
 
-        <details>
+        <!-- Shown only in preset-only mode (?preset=<id>), in place of the
+             data groups. -->
+        <div id="preset-only-name">Preset: <b></b></div>
+
+        <!-- The theme for the whole page — graph, Nodino's menus and this
+             panel alike (config.theme). Kept in step with the debug panel's
+             own Themes group by the script below. -->
+        <div id="theme-toggle" role="group" aria-label="Theme">
+            <button type="button" data-theme="light" aria-pressed="true" class="active">Light</button>
+            <button type="button" data-theme="constellation" aria-pressed="false">Dark</button>
+        </div>
+
+        <!-- Open by default: the presets are the demo's front door, and the
+             page loads the first of them on start. The other two groups
+             start collapsed. -->
+        <details open>
             <summary>Presets</summary>
             <div class="group-body">
-                <div class="row">
-                    <!-- Deliberately empty for now — the preset datasets
-                         themselves are still to come. -->
-                    <select id="preset-select">
-                        <option value="">No presets yet</option>
-                    </select>
-                </div>
+                <!-- Each preset is a script under presets/ that registers
+                     itself in window.NodinoPresets — a script rather than a
+                     JSON file, so it loads from a file:// page too, where
+                     fetch() of a local file is blocked. Loaded on demand. -->
+                <select id="preset-select" aria-label="Preset">
+                    <!-- data-description: what the preset is, shown as soon
+                         as it is selected — before its script is loaded. -->
+                    <option value="wikipedia-500" data-description="The 500 most read articles of the English Wikipedia over the last 12 months, each described by its short description and the first paragraph of its introduction. People, films and series, politics, sport, countries and history each gather into their own groups. Lists, automated traffic and explicit topics are left out. Similarity of local text embeddings (all-MiniLM-L6-v2), ranked into [-1, 1]; each article keeps its 10 closest and 3 farthest relations. Data: Wikimedia Pageviews, Wikipedia. 500 articles.">Wikipedia top 500 (October 2026)</option>
+                    <option value="pokemon-151-types" data-description="Each Pokémon is described only by its types and its evolution line — no names, no Pokédex text. Evolution families and Pokémon of the same type pull tightly together. Similarity of local text embeddings (all-MiniLM-L6-v2), ranked into [-1, 1]; each Pokémon keeps its 10 closest and 3 farthest relations. Data: PokeAPI. 151 Pokémon.">Pokemon 1st gen - Basic</option>
+                    <option value="pokemon-151" data-description="Each Pokémon is described by its Pokédex entries plus its category, types, colour, habitat and body shape. Groups mix type, behaviour and appearance, so neighbours can be surprising. Similarity of local text embeddings (all-MiniLM-L6-v2), ranked into [-1, 1]; each Pokémon keeps its 10 closest and 3 farthest relations. Data: PokeAPI. 151 Pokémon.">Pokemon 1st gen - All Attributes</option>
+                    <option value="pokemon-251-types" data-description="Each Pokémon is described only by its types and its evolution line — no names, no Pokédex text. Evolution families and Pokémon of the same type pull tightly together. Similarity of local text embeddings (all-MiniLM-L6-v2), ranked into [-1, 1]; each Pokémon keeps its 10 closest and 3 farthest relations. Data: PokeAPI. 251 Pokémon.">Pokemon 1st and 2nd gen - Basic</option>
+                    <option value="pokemon-251" data-description="Each Pokémon is described by its Pokédex entries plus its category, types, colour, habitat and body shape. Groups mix type, behaviour and appearance, so neighbours can be surprising. Similarity of local text embeddings (all-MiniLM-L6-v2), ranked into [-1, 1]; each Pokémon keeps its 10 closest and 3 farthest relations. Data: PokeAPI. 251 Pokémon.">Pokemon 1st and 2nd gen - All Attributes</option>
+                    <option value="spotify-250-genres" data-description="The 250 artists with the most monthly listeners on Spotify, every genre, each described only by its genres — no name, no text. Pop, rock, hip hop, Latin, R&amp;B, dance, country, K-pop and Indian film music each pull together into their own group, and artists with exactly the same genres share one point. Similarity of local text embeddings (all-MiniLM-L6-v2), ranked into [-1, 1]; each artist keeps its 10 closest and 3 farthest relations. Data: kworb.net (Spotify monthly listeners), Wikidata. 250 artists.">Spotify top 250 - Basic</option>
+                    <option value="spotify-250" data-description="The 250 artists with the most monthly listeners on Spotify, every genre, each described by its Wikipedia introduction plus a short description, country, start year and genres. Groups mix genre, era, scene and language, so neighbours can be surprising. Similarity of local text embeddings (all-MiniLM-L6-v2), ranked into [-1, 1]; each artist keeps its 10 closest and 3 farthest relations. Data: kworb.net (Spotify monthly listeners), Wikidata, Wikipedia. 250 artists.">Spotify top 250 - All Attributes</option>
+                    <option value="spotify-1000-genres" data-description="The 1000 artists with the most monthly listeners on Spotify, every genre, each described only by its genres — no name, no text. Same as the top 250, with smaller scenes now large enough to form their own groups — K-pop, metal, country, EDM. Similarity of local text embeddings (all-MiniLM-L6-v2), ranked into [-1, 1]; each artist keeps its 10 closest and 3 farthest relations. Data: kworb.net (Spotify monthly listeners), Wikidata. 1000 artists; takes longer to settle.">Spotify top 1000 - Basic</option>
+                    <option value="spotify-1000" data-description="The 1000 artists with the most monthly listeners on Spotify, every genre, each described by its Wikipedia introduction plus a short description, country, start year and genres. Groups mix genre, era, scene and language, so neighbours can be surprising. Similarity of local text embeddings (all-MiniLM-L6-v2), ranked into [-1, 1]; each artist keeps its 10 closest and 3 farthest relations. Data: kworb.net (Spotify monthly listeners), Wikidata, Wikipedia. 1000 artists; takes longer to settle.">Spotify top 1000 - All Attributes</option>
+                    <option value="world-cities" data-description="An experiment: 500 places — every capital, the largest cities (at most 15 per country) and a few remote ones — related by nothing but their real distance (each to its nearest places, to some at middle distances and to its farthest), with weights chosen so the globe's target distance between two places is their true one. Run it on the globe and the world map takes shape again, roughly — mirrored, since distances alone cannot tell a map from its mirror image. Meant for the globe: a sphere's distances do not fit the 2D disk. Data: Wikidata. 500 places.">World Cities</option>
+                </select>
+                <!-- The description is too long to sit open on every visit;
+                     collapsed by default, with a +/− sign (see the CSS).
+                     Between the dropdown and the button, since it describes
+                     what is selected, before it is loaded. -->
+                <details class="info">
+                    <summary>Click for info</summary>
+                    <div class="note" id="preset-info"></div>
+                </details>
+                <button id="btn-load-preset" class="primary">Load Preset</button>
+                <!-- Loading/errors only: those must stay visible, so they
+                     don't live inside the collapsed info above. -->
+                <div class="note" id="preset-note"></div>
             </div>
         </details>
 
@@ -323,25 +671,37 @@
                      read and edited before it replaces what is on screen. -->
                 <div class="row">
                     <button id="btn-export-current" title="Fill the box below with the graph as it stands now, positions included — load it back to exercise the restore path">Export Current</button>
-                    <button id="btn-import-file" title="Fill the box below with the contents of a JSON file">Import from File</button>
+                    <button id="btn-import-file" title="Fill the box below with the contents of a JSON file">Import File</button>
                     <input type="file" id="file-input" accept="application/json" hidden />
                 </div>
-                <textarea id="paste-input" placeholder='{"edges":[["a","b",0.5]],"nodes":{"a":{"m":{}}}}'></textarea>
-                <div class="row">
-                    <button id="btn-import-paste">Load</button>
-                </div>
+                <textarea id="paste-input" aria-label="Graph JSON" placeholder='{"edges":[["a","b",0.5]],"nodes":{"a":{"m":{}}}}'></textarea>
+                <button id="btn-import-paste" class="primary">Load</button>
             </div>
         </details>
 
-        <!-- Open by default: it is the demo's primary path, and the page
-             generates a random graph on load anyway. The other two start
-             collapsed. -->
-        <details open>
+        <details>
             <summary>Random Generation</summary>
             <div class="group-body">
+                <div class="fields">
+                    <label class="field">
+                        <span>Nodes</span>
+                        <input type="number" id="node-count" min="0" max="5000" step="50" value="400" title="Number of nodes to generate" />
+                    </label>
+                    <!-- Text rather than number: an emptied number input and an
+                         invalid one both read as '', and here those two mean
+                         different things — "pick one for me" and a typo. -->
+                    <label class="field">
+                        <span>Seed</span>
+                        <input type="text" id="seed-input" inputmode="numeric" placeholder="random" title="Integer 0–4294967295. The same seed and node count always generate the same graph. Leave empty for a random one." />
+                    </label>
+                </div>
+                <button id="btn-generate" class="primary">Generate Nodes</button>
+                <div class="note" id="seed-note"></div>
+                <!-- Edit the graph on screen instead of replacing it
+                     (instance.update()): works mid-run, paused or settled. -->
                 <div class="row">
-                    <input type="number" id="node-count" min="0" max="5000" step="50" value="400" title="Number of nodes to generate" />
-                    <button id="btn-generate">Generate Nodes</button>
+                    <button id="btn-add-node" title="Add a node linked to a few random nodes of the graph on screen, without reloading it">Add Node</button>
+                    <button id="btn-remove-node" title="Remove a random node, with its edges, from the graph on screen">Remove Node</button>
                 </div>
             </div>
         </details>
@@ -349,7 +709,23 @@
 
     <script src="nodino.js"></script>
     <script>
-        function generateRandomGraph(nodeCount) {
+        // Seeded PRNG (mulberry32): 32-bit state, uniform floats in [0, 1).
+        // The demo's only source of randomness, so a seed and a node count
+        // name exactly one graph. Not cryptographic and not meant to be —
+        // it only has to be fast, deterministic and identical in every
+        // browser, which Math.random() is not.
+        function mulberry32(seed) {
+            var a = seed >>> 0;
+            return function () {
+                a = (a + 0x6D2B79F5) | 0;
+                var t = Math.imul(a ^ (a >>> 15), 1 | a);
+                t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+                return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+            };
+        }
+
+        function generateRandomGraph(nodeCount, seed) {
+            var random = mulberry32(seed);
             var nodes = {};
             for (var i = 0; i < nodeCount; i++) {
                 nodes['n' + i] = { m: { title: 'Random generated node #' + i } };
@@ -359,13 +735,22 @@
             var unrelatedFactor = 0.9; // mirrors the PoC's random generator
             for (var i = 0; i < nodeCount - 1; i++) {
                 for (var j = i + 1; j < nodeCount; j++) {
-                    if (Math.random() < unrelatedFactor) continue;
-                    var weight = (Math.random() * 2) - 1;
+                    if (random() < unrelatedFactor) continue;
+                    var weight = (random() * 2) - 1;
                     edges.push(['n' + i, 'n' + j, weight]);
                 }
             }
 
             return { nodes: nodes, edges: edges };
+        }
+
+        // Card content is inserted as HTML, unsanitized (API-DOCS.md,
+        // Security), and a title here can come from pasted or imported JSON —
+        // so every data value is escaped before it is put in markup.
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, function (c) {
+                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+            });
         }
 
         // The two card handlers. They share everything except the last line,
@@ -412,13 +797,34 @@
             return new Promise(function (resolve) {
                 setTimeout(function () {
                     var title = node.m && node.m.title;
+                    // A preset may give each node an image URL (m.image): a
+                    // link, loaded by the browser from wherever the preset
+                    // points, never stored with the page. One that fails to
+                    // load (offline, say) removes itself instead of showing
+                    // a broken-image box.
+                    var image = node.m && node.m.image;
+                    // A width to show it at (m.imageWidth, a number), for a
+                    // photo fetched larger than it is shown.
+                    var imageWidth = node.m && Math.round(Number(node.m.imageWidth)) || 0;
+                    var link = node.m && node.m.link;
                     // Empty string, not null: null means "leave the slot as
                     // it is", which here would leave the spinner turning.
                     resolve(
-                        (title ? '<i>' + title + '</i>' : '') +
+                        (image
+                            ? '<img class="demo-card-image' + (imageWidth ? ' photo" width="' + imageWidth : '') +
+                              '" src="' + escapeHtml(image) + '" alt="" onerror="this.remove()">'
+                            : '') +
+                        (title ? '<i>' + escapeHtml(title) + '</i>' : '') +
                         (withActions
                             ? (title ? '<br>' : '') +
-                              '<button class="demo-action" data-action="copy">Copy uid</button>'
+                              '<button class="demo-action" data-action="copy">Copy uid</button>' +
+                              // A preset may link each node to a page about it
+                              // (m.link: { url, label }) — in the pinned card
+                              // only, the one that can be clicked.
+                              (link && link.url
+                                  ? ' <a class="demo-link" href="' + escapeHtml(link.url) + '" target="_blank" rel="noopener noreferrer">' +
+                                    escapeHtml(link.label || 'More') + ' ↗</a>'
+                                  : '')
                             : '')
                     );
                 }, 150);
@@ -460,6 +866,14 @@
 
         var inputNodeCount = document.getElementById('node-count');
         var btnGenerate = document.getElementById('btn-generate');
+        var seedInput = document.getElementById('seed-input');
+        var seedNote = document.getElementById('seed-note');
+        var presetSelect = document.getElementById('preset-select');
+        var btnLoadPreset = document.getElementById('btn-load-preset');
+        var presetNote = document.getElementById('preset-note');
+        var presetInfo = document.getElementById('preset-info');
+        var btnAddNode = document.getElementById('btn-add-node');
+        var btnRemoveNode = document.getElementById('btn-remove-node');
         var btnImportFile = document.getElementById('btn-import-file');
         var fileInput = document.getElementById('file-input');
         var pasteInput = document.getElementById('paste-input');
@@ -481,9 +895,30 @@
         // regardless.
         function setToolbarCollapsed(collapsed) {
             toolbarEl.classList.toggle('collapsed', collapsed);
-            toolbarToggle.textContent = collapsed ? '▸' : '▾';
-            toolbarToggle.title = collapsed ? 'Expand panel' : 'Collapse panel';
+            // The chevron is CSS and follows the class; only the words change.
+            var label = collapsed ? 'Expand panel' : 'Collapse panel';
+            toolbarToggle.title = label;
+            toolbarToggle.setAttribute('aria-label', label);
+            toolbarToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
         }
+
+        // The three groups are an accordion: opening one closes the others.
+        // Done here rather than with <details name="...">, whose exclusive
+        // behaviour is recent enough that older browsers would silently
+        // ignore it and open every group at once. `toggle` fires after the
+        // state has changed, so only an opening reacts — closing the others
+        // fires their own toggles, which are closings and do nothing.
+        // Top-level groups only: a collapsible nested inside one (the preset
+        // info) opening must not close the group that holds it.
+        var toolbarGroups = toolbarEl.querySelectorAll(':scope > details');
+        Array.prototype.forEach.call(toolbarGroups, function (group) {
+            group.addEventListener('toggle', function () {
+                if (!group.open) return;
+                Array.prototype.forEach.call(toolbarGroups, function (other) {
+                    if (other !== group) other.open = false;
+                });
+            });
+        });
 
         toolbarToggle.onclick = function () {
             setToolbarCollapsed(!toolbarEl.classList.contains('collapsed'));
@@ -496,17 +931,56 @@
         // threshold) is rare enough here not to warrant a matchMedia
         // listener, and either way the toggle still works by hand.
         if (RESPONSIVE_QUERY.matches) setToolbarCollapsed(true);
+        toolbarEl.classList.add('ready');
+
+        // This panel lives outside Nodino's container, so it does not inherit
+        // the theme's chrome colours by itself: it copies the container's
+        // nodino-theme-* class whenever Nodino changes it (config.theme, the
+        // debug panel's Apply Theme). Same palette, one source.
+        var graphEl = document.getElementById('graph');
+        var themeButtons = document.querySelectorAll('#theme-toggle button');
+        function mirrorTheme() {
+            Array.prototype.slice.call(toolbarEl.classList).forEach(function (c) {
+                if (c.indexOf('nodino-theme-') === 0) toolbarEl.classList.remove(c);
+            });
+            Array.prototype.forEach.call(graphEl.classList, function (c) {
+                if (c.indexOf('nodino-theme-') === 0) toolbarEl.classList.add(c);
+            });
+            // The Light | Dark toggle shows whichever theme is in force, however
+            // it got there — this toggle, the debug panel, or host code.
+            Array.prototype.forEach.call(themeButtons, function (button) {
+                var on = graphEl.classList.contains('nodino-theme-' + button.getAttribute('data-theme'));
+                button.classList.toggle('active', on);
+                button.setAttribute('aria-pressed', on ? 'true' : 'false');
+            });
+        }
+        new MutationObserver(mirrorTheme).observe(graphEl, { attributes: true, attributeFilter: ['class'] });
 
         // The data last handed to load(). Nodino gives the positions back
         // (getPositions()) but not the nodes and edges — those never stopped
         // being this page's, so this page is what remembers them.
         var currentData = null;
 
-        // No onStateChange listener and nothing polling getStats(): both the
-        // lifecycle controls and the node/edge counts are the widget's own
-        // chrome now, kept in sync inside it. What is left here is only data
-        // ingestion — which is the point of the demo.
-        var instance = Nodino.create(document.getElementById('graph'), {
+        // Hint on Run (see the CSS): on with every page load, off once a
+        // simulation first runs. Nothing is stored — a refresh brings it back.
+        graphEl.classList.add('demo-run-hint');
+
+        function endRunHint() {
+            graphEl.classList.remove('demo-run-hint');
+        }
+
+        // Nothing polling getStats(): both the lifecycle controls and the
+        // node/edge counts are the widget's own chrome, kept in sync inside
+        // it. The one onStateChange below only ends the Run hint; what is
+        // left here is otherwise data ingestion — which is the point of the
+        // demo.
+        var DEMO_CONFIG = {
+            debug: false,
+            logEvents: true,
+            physics: { maxConvergenceFrames: 500 }
+        };
+
+        var instance = Nodino.create(graphEl, {
             // maxConvergenceFrames: 500 is a demo-only override (library
             // default 7200) — low enough that the step budget actually
             // competes with the 5-second one instead of sitting behind it as
@@ -518,23 +992,80 @@
             // to the console (library default false). On here because this is
             // the page for watching the state machine work.
             //
-            // debug starts closed under the same responsive threshold the
-            // toolbar collapses under — same reasoning as that panel, mirrored
-            // to the other bottom corner: on a narrow window this is the
-            // graph's own config/tweak panel, not something a first-time
-            // visitor needs open immediately, and the ⚙ toggle (which stays
-            // visible either way) is one tap from reopening it.
-            config: {
-                debug: !RESPONSIVE_QUERY.matches,
-                logEvents: true,
-                physics: { maxConvergenceFrames: 500 }
+            // debug starts closed at every width: the config panel is for
+            // tuning, not something a first-time visitor needs open over the
+            // graph, and the ⚙ toggle (always visible) is one click from
+            // opening it.
+            config: DEMO_CONFIG,
+            // One of the host events, logged and nothing more: this page has
+            // no selection UI of its own to keep in step, so it shows what a
+            // host would receive. No preventDefault(), so Nodino's own pin
+            // behaves exactly as without it.
+            onPinChange: function (e) {
+                console.log('[demo] pin change:', e.previous, '->', e.uid, '(' + e.source + ')');
+            },
+            // Any run ends the Run hint, however it was started —
+            // the button, the keyboard, or start() from the console.
+            onStateChange: function (state) {
+                if (state === 'running' || state === 'forced') endRunHint();
             }
+        });
+
+        // Light | Dark: config.theme, nothing more. The toggle's own state is
+        // set by mirrorTheme() above, from the class Nodino puts on the graph.
+        Array.prototype.forEach.call(themeButtons, function (button) {
+            button.onclick = function () {
+                instance.updateConfig({ theme: button.getAttribute('data-theme') });
+            };
         });
 
         // load() only builds and draws the initial layout — it never starts the
         // simulation on its own, here or in the library. Run (in the widget's
         // own control bar) is a separate, explicit step.
-        function loadGraph(data) {
+        // A preset may bring its own config (preset.config, a partial patch
+        // like any other), passed as load()'s config. That config persists
+        // past the load ([F API.2]), so the next dataset — preset, JSON or
+        // random — first puts every field the last preset set back to what
+        // this page started from: its own create() config where it set the
+        // field, Nodino.defaults otherwise. Fields the visitor changed in the
+        // debug panel are left alone unless a preset touched them.
+        var presetConfigInForce = null;
+
+        // The values `source` holds at every leaf path of `patch`.
+        function valuesAt(patch, source) {
+            var out = {};
+            Object.keys(patch).forEach(function (key) {
+                var value = patch[key];
+                var from = source ? source[key] : undefined;
+                out[key] = value && typeof value === 'object' && !Array.isArray(value) ? valuesAt(value, from) : from;
+            });
+            return out;
+        }
+
+        function deepAssign(target, patch) {
+            Object.keys(patch).forEach(function (key) {
+                var value = patch[key];
+                if (value && typeof value === 'object' && !Array.isArray(value)) {
+                    target[key] = deepAssign(target[key] && typeof target[key] === 'object' ? target[key] : {}, value);
+                } else if (value !== undefined) {
+                    target[key] = value;
+                }
+            });
+            return target;
+        }
+
+        function configForLoad(presetConfig) {
+            var config = {};
+            if (presetConfigInForce) {
+                deepAssign(config, valuesAt(presetConfigInForce, Nodino.defaults));
+                deepAssign(config, valuesAt(presetConfigInForce, DEMO_CONFIG));
+            }
+            if (presetConfig) deepAssign(config, presetConfig);
+            presetConfigInForce = presetConfig || null;
+            return config;
+        }
+
+        function loadGraph(data, presetConfig) {
             if (!data || !Array.isArray(data.edges)) {
                 alert('Invalid graph JSON: expected { "edges": [["uid1","uid2",weight], ...], "nodes"?: {...}, "positions"?: {...} }');
                 return;
@@ -544,6 +1075,7 @@
             // one of this demo's sources happens to want the same pair, but
             // they each have to say so.
             instance.load(data, {
+                config: configForLoad(presetConfig),
                 onNodeHover: onNodeHover,
                 onNodePin: onNodePin,
                 onSettle: onSettle,
@@ -577,10 +1109,135 @@
             );
         }
 
+        var MAX_SEED = 4294967295;
+
+        // Empty field: a seed is drawn here and shown, so even an unplanned
+        // graph can be regenerated — copy it from the note into the field.
+        // Anything else must be an integer in the PRNG's 32-bit range; a
+        // typo is refused rather than silently treated as "random", which
+        // would look like the seed had been honoured.
         btnGenerate.onclick = function () {
             var count = parseInt(inputNodeCount.value, 10) || 0;
-            loadGraph(generateRandomGraph(count));
+            var text = seedInput.value.trim();
+            var seed, origin;
+            if (text === '') {
+                seed = Math.floor(Math.random() * (MAX_SEED + 1));
+                origin = 'random';
+            } else if (/^\d+$/.test(text) && Number(text) <= MAX_SEED) {
+                seed = Number(text);
+                origin = 'user-defined';
+            } else {
+                seedInput.classList.add('invalid');
+                seedNote.textContent = 'Invalid seed: use an integer from 0 to ' + MAX_SEED + '.';
+                return;
+            }
+            seedInput.classList.remove('invalid');
+            seedNote.textContent = 'Current seed: ' + seed + ' (' + origin + ')';
+            loadGraph(generateRandomGraph(count, seed));
         };
+
+        seedInput.addEventListener('input', function () {
+            seedInput.classList.remove('invalid');
+        });
+
+        // Enter in the field generates, as the button beside it would.
+        seedInput.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') btnGenerate.click();
+        });
+
+        // The two edit buttons. Random on purpose, like the generator — the
+        // library stays deterministic, the demo's data does not have to be.
+        // Each one mirrors its edit into currentData, so Export Current keeps
+        // writing the graph that is actually on screen.
+        var addedCount = 0;
+
+        function pickDistinct(list, k) {
+            var pool = list.slice(), out = [];
+            while (out.length < k && pool.length > 0) {
+                out.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+            }
+            return out;
+        }
+
+        btnAddNode.onclick = function () {
+            if (!currentData) return;
+            var uids = Object.keys(instance.getPositions());
+            var uid;
+            do { uid = 'added-' + (++addedCount); } while (uids.indexOf(uid) >= 0);
+            // Mostly positive weights, so the new node has neighbours to start
+            // beside and something to be pulled towards.
+            var edges = pickDistinct(uids, 3 + Math.floor(Math.random() * 4)).map(function (other) {
+                return [uid, other, Math.round((Math.random() * 1.2 - 0.2) * 1000) / 1000];
+            });
+            var entry = { m: { title: 'Added node #' + addedCount } };
+            var addNodes = {};
+            addNodes[uid] = entry;
+            instance.update({ addNodes: addNodes, addEdges: edges });
+            var nodes = Object.assign({}, currentData.nodes);
+            nodes[uid] = entry;
+            currentData = { nodes: nodes, edges: currentData.edges.concat(edges) };
+        };
+
+        btnRemoveNode.onclick = function () {
+            if (!currentData) return;
+            var uid = pickDistinct(Object.keys(instance.getPositions()), 1)[0];
+            if (uid === undefined) return;
+            instance.update({ removeNodes: [uid] });
+            var nodes = Object.assign({}, currentData.nodes);
+            delete nodes[uid];
+            currentData = {
+                nodes: nodes,
+                edges: currentData.edges.filter(function (e) {
+                    return String(e[0]) !== uid && String(e[1]) !== uid;
+                })
+            };
+        };
+
+        // Fetches presets/<id>.js the first time it is asked for (a <script>
+        // tag, see the markup), then loads it like any other dataset. The
+        // note shows only loading and errors; the collapsible info says
+        // what the selected preset is (its option's data-description), then
+        // whose its images are once loaded — the preset carries that. The
+        // technical recipe stays in the preset file's own `source`.
+        function presetCredit(preset) {
+            var option = presetSelect.options[presetSelect.selectedIndex];
+            var description = option ? option.getAttribute('data-description') : '';
+            return [description, preset && preset.attribution].filter(Boolean).join(' ');
+        }
+
+        presetSelect.addEventListener('change', function () {
+            presetInfo.textContent = presetCredit(null);
+        });
+        presetInfo.textContent = presetCredit(null);
+
+        function loadPreset(id) {
+            var registry = window.NodinoPresets || {};
+            presetNote.textContent = '';
+            if (registry[id]) {
+                presetInfo.textContent = presetCredit(registry[id]);
+                loadGraph(registry[id].data, registry[id].config);
+                return;
+            }
+            btnLoadPreset.disabled = true;
+            presetNote.textContent = 'Loading…';
+            var script = document.createElement('script');
+            script.src = 'presets/' + id + '.js';
+            script.onload = function () {
+                btnLoadPreset.disabled = false;
+                var preset = (window.NodinoPresets || {})[id];
+                if (!preset) { presetNote.textContent = 'Preset "' + id + '" did not register itself.'; return; }
+                presetNote.textContent = '';
+                presetInfo.textContent = presetCredit(preset);
+                loadGraph(preset.data, preset.config);
+            };
+            script.onerror = function () {
+                btnLoadPreset.disabled = false;
+                presetNote.textContent = 'Could not load presets/' + id + '.js.';
+            };
+            document.head.appendChild(script);
+        }
+
+        btnLoadPreset.onclick = function () { loadPreset(presetSelect.value); };
 
         btnImportFile.onclick = function () { fileInput.click(); };
 
@@ -636,12 +1293,37 @@
                 edges: currentData.edges,
                 positions: instance.getPositions(),
                 globePositions: instance.getGlobePositions(),
-                maxFrames: instance.getStats().frames
+                maxFrames: instance.getStats().frames,
+                // Whether these positions are a finished layout. Exported
+                // mid-run (paused), they reopen paused with Run available,
+                // rather than as a convergence that never happened.
+                settled: instance.getStats().settled
             });
         };
 
+        // Preset-only mode: ?preset=<id> (an option value of the preset
+        // dropdown — already URL-safe, e.g. ?preset=spotify-250) opens that
+        // preset with the panel reduced to the theme and the preset's name,
+        // for linking to one dataset. An id this page does not know is
+        // ignored with a warning, and the page opens as usual.
+        var linkedPreset = null;
+        try { linkedPreset = new URLSearchParams(location.search).get('preset'); } catch (e) { /* very old browser: no mode */ }
+        if (linkedPreset) {
+            var linkedOption = Array.prototype.filter.call(presetSelect.options, function (o) { return o.value === linkedPreset; })[0];
+            if (linkedOption) {
+                presetSelect.value = linkedPreset;
+                presetInfo.textContent = presetCredit(null);
+                document.querySelector('#preset-only-name b').textContent = linkedOption.textContent;
+                toolbarEl.classList.add('preset-only');
+            } else {
+                console.warn('[demo] unknown preset in the URL: ' + linkedPreset);
+            }
+        }
+
+        // The page opens on a real dataset — the preset selected in the open
+        // Presets group, or the one the URL names — rather than on random data.
         window.addEventListener('load', function () {
-            btnGenerate.click();
+            loadPreset(presetSelect.value);
         });
     </script>
 </body>

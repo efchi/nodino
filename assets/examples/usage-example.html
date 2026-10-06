@@ -29,6 +29,14 @@
 
     <script src="../../nodino.js"></script>
     <script>
+        // Card content is HTML: data values go through this before they are
+        // put in markup (step 5 below).
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, function (c) {
+                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+            });
+        }
+
         // 3. Create the instance. create() takes instance-level options only —
         //    it never takes data.
         var nodino = Nodino.create(document.getElementById('graph'), {
@@ -90,7 +98,9 @@
             onNodeHover: function (node) {   // (node, body) if you want the element
                 var label = (node.m && node.m.label) || node.uid;
                 var kind = (node.m && node.m.kind) || 'unknown';
-                return '<strong>' + label + '</strong><br>' + kind;
+                // The returned string is inserted as HTML, unsanitized:
+                // escape data values (see API-DOCS.md, Security).
+                return '<strong>' + escapeHtml(label) + '</strong><br>' + escapeHtml(kind);
             }
             // config: { ... }   // optional per-dataset config patch
         });

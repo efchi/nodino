@@ -3,15 +3,16 @@
  * See nodino.dox.md for the specification this implementation follows.
  *
  * If any chrome is used (config.debug / showDebugToggle / showSimControls /
- * showViewModeToggle / showGeometryToggle / showSearch / showStats /
- * showRunTime / showProgressBar), the host page must also link nodino.css —
- * it holds all the menu/chrome styling (debug panel and its toggle,
- * simulation controls, view mode toggle, geometry toggle, search bar and its
+ * showViewModeToggle / showGeometryToggle / showLabelsToggle / showSearch /
+ * showStats / showRunTime / showProgressBar), the host page must also link
+ * nodino.css — it holds all the menu/chrome styling (debug panel and its
+ * toggle, simulation controls, view mode toggle, geometry toggle, labels
+ * toggle, search bar and its
  * autocomplete list, detail panel, readouts, progress bar). The canvas itself
  * needs nothing from it: the graph's own visual style stays programmatic
  * (config.style), independent of this file.
  *
- * Those nine flags plus showPulse are host-level embedding choices,
+ * Those ten flags plus showPulse and showNodeLabels are host-level embedding choices,
  * settable at create() and changeable at any time through updateConfig() —
  * none of them is exposed in the debug panel, which is for tuning the
  * layout, not for deciding which chrome an embedding shows. Two of them gate
@@ -32,8 +33,26 @@
 (function (global) {
   'use strict';
 
+  // Printed by create()'s startup banner. Bumped together with package.json's
+  // version at release.
+  var VERSION = '2.4.12';
+
   var DEFAULT_CONFIG = {
     debug: false,
+    // The colour theme ([D Config.8]): a name from Nodino.themes. Setting it —
+    // at create(), in load()'s config or through updateConfig() — applies the
+    // theme's colours to `style`; colours given in the same patch win, so a
+    // theme can be a starting point. Afterwards it only records the last
+    // theme applied: editing a colour does not change it.
+    theme: 'light',
+    // Master switch for everything Nodino writes to the console: the warnings
+    // (refused verbs, unknown uids, host handlers that threw or rejected,
+    // malformed input) and, under it, the logEvents trace. On by default,
+    // because a warning is how a host learns it misused the API; a host that
+    // ships and wants a clean console turns it off. The one line it does not
+    // cover is the startup banner create() prints, so an embedding always
+    // shows which version is running. See createWarner().
+    logging: true,
     // Traces everything that moves the instance to the console: control
     // presses, public method calls, lifecycle transitions, and the host
     // callbacks fired as a result. Off by default — an embedded library has
@@ -90,7 +109,24 @@
     // no automatic geometry switch to gate: the only rule that moves a
     // geometry is a click on the button that is no longer there.
     showGeometryToggle: true,
-    // The radius that *defines* the 'proximity' reading ([D View.9]), in world
+    // How the 'proximity' radius is chosen ([D View.13]). 'auto' (default)
+    // scales it with the graph's density so every node has about
+    // proximityNeighbors others within it, whatever the node count: a fixed
+    // radius sized for a few hundred nodes found almost nobody in a graph of
+    // twenty — the reading came up nearly bare — and dozens per node in a
+    // graph of thousands. 'fixed' uses proximityMaxDistance /
+    // globeProximityMaxDistance below as absolute radii, as before.
+    proximityRadius: 'auto',
+    // The density 'auto' aims at: the expected number of nodes within a
+    // node's radius, were the nodes spread evenly, from 400 nodes up — below
+    // that it ramps down with √n, so a small graph is not drawn as a mesh.
+    // 16 gives exactly the old fixed radius (0.2) at 400 nodes, the size it
+    // was tuned on. One value
+    // for both geometries — the radius it implies is geometry-specific, the
+    // neighbourhood it asks for is not.
+    proximityNeighbors: 16,
+    // The radius that *defines* the 'proximity' reading under
+    // proximityRadius: 'fixed' ([D View.9]), in world
     // units — the layout lives in a disk of radius 1, so 0.2 is a tenth of its
     // diameter. Two nodes are joined exactly when they lie within it of each
     // other. There is no k: "who are this node's k nearest neighbours" always
@@ -118,11 +154,22 @@
     // would mean something different on every graph.
     clusterQuantile: 0.8,
     showViewModeToggle: true,
+    // The eye button right of the view-mode toggle, flipping showNodeLabels
+    // ([D Render.6]). Only the control: hiding it leaves showNodeLabels
+    // wherever it was, so a host forces labels on or off the same way it
+    // forces a geometry — set the flag, hide the button.
+    showLabelsToggle: true,
     // uid search box with an autocomplete list, top-centre beside the two
     // toggles ([F Search.1]). Chrome like the rest of them, and switchable
     // like the rest of them ([D Config.3]): a host that would rather run its
     // own search turns this off and drives pin() itself ([F API.10]).
     showSearch: true,
+    // How many rows the search list offers. A cap rather than a scroller:
+    // past a dozen the list has stopped answering the question and the query
+    // is what needs narrowing ([D Search.3]). Read on every query, so
+    // updateConfig() applies from the next keystroke; anything that is not a
+    // number >= 1 falls back to the default.
+    searchMaxResults: 12,
     // Built-in Reset/Run/Pause/Force bar + state readout, top-right. A host
     // that would rather own those controls itself turns this off and drives
     // the instance through onStateChange (see createSimControls).
@@ -135,6 +182,10 @@
     // touches the physics, only what the host chooses to show for it.
     showPulse: true,        // perimeter opacity animation while running (draw())
     showProgressBar: true,  // convergence-deadline bar anchored to the bottom (progressBar)
+    // Node names drawn on the canvas itself once zoomed in far enough
+    // ([D Render.6]) — painted, not chrome, so there is no DOM component for
+    // this flag to build or tear down; it gates one pass of draw().
+    showNodeLabels: true,
     // Keep only the k strongest edges per node (symmetric kNN sparsification).
     // Caps |E| at n*k — linear in node count — so cost per frame no longer
     // follows the quadratic edge growth of a dense similarity graph. 0 disables.
@@ -195,10 +246,22 @@
       maxConvergenceFrames: 7200
     },
     style: {
+      // The disk's fill while the layout is not settled (idle, running,
+      // paused); settledBackgroundColor below takes over at convergence.
       backgroundColor: '#ffffff',
-      // Outside the boundary circle — a tone close enough to backgroundColor
-      // to read as "the same page continuing", not a boxed-in widget.
+      // Outside the boundary circle while not settled. Its own field rather
+      // than backgroundColor reused, so a host can set the page and the disk
+      // apart before convergence as well as after it.
+      outsideBackgroundColor: '#ffffff',
+      // Outside the boundary circle once settled — a tone close enough to
+      // backgroundColor to read as "the same page continuing", not a
+      // boxed-in widget.
       outsideColor: '#f8f8fe',
+      // The disk's own fill once the layout has converged, in every view —
+      // the inside counterpart of outsideColor, eased in and out on the same
+      // clock ([D Render.2]). Defaults to backgroundColor's white, so the
+      // inside stays as it was until a host chooses a settled tint.
+      settledBackgroundColor: '#ffffff',
       perimeterColor: '#000000',
       perimeterWidth: 1,
       // Perimeter opacity communicates simulation status at a glance: a flat
@@ -233,12 +296,13 @@
       perimeterSettledAlpha: 0.15,
       // On the exact frame convergence is reached, the perimeter eases from
       // wherever the pulse happened to be at that instant down/up to
-      // perimeterSettledAlpha, and the outside-disk area eases from
-      // backgroundColor towards outsideColor — both over
+      // perimeterSettledAlpha, the outside-disk area eases from
+      // outsideBackgroundColor towards outsideColor and the disk from
+      // backgroundColor towards settledBackgroundColor — all over
       // settledTransitionDuration ms, no separate "last pulse" spike. The
       // same easing runs in reverse the moment convergence is lost again (a
-      // fresh generate/restart/load while settled): the outer tint fades
-      // back towards backgroundColor instead of cutting instantly. See
+      // fresh generate/restart/load while settled): both tints fade back
+      // instead of cutting instantly. See
       // draw()/tick() (settledAt/unsettledAt).
       settledTransitionDuration: 600,
       nodeColor: '#000000',
@@ -266,7 +330,7 @@
       // immediately. 0 would disable the effect and pin the radius flat.
       nodeRadiusZoomInThreshold: 3,
       nodeRadiusZoomInExponent: 0.5,
-      nodeRadiusMax: 5,
+      nodeRadiusMax: 2.5,
       nodeRadiusZoomOutThreshold: 0.5,
       nodeRadiusZoomOutExponent: 0.5,
       nodeRadiusMin: 1,
@@ -278,6 +342,47 @@
       highlightBorderWidth: 1.5,
       highlightBorderColor: '#000000',
       highlightRadius: 5,
+
+      // --- Labels ([D Render.6]) ---------------------------------------
+      // Labels are placed in priority order and a label that would overlap
+      // one already placed is simply not drawn, so zooming in — which spreads
+      // the nodes apart on screen — is what uncovers the rest of them. There
+      // is no level-of-detail table to tune: density decides.
+      //
+      // labelMinZoom is a multiple of the fit-to-view zoom, like the node
+      // radius thresholds above. Below it no label is drawn at all. 1 is the
+      // fitted view a page opens on, so labels are there from the start and
+      // go the moment the viewer zooms out past it — zooming out is asking
+      // for the graph's shape, and names are noise in that picture.
+      labelMinZoom: 1,
+      // Ceiling on labels per frame. Collision already bounds the count by
+      // what fits on screen; this bounds the cost of fillText on a very
+      // large viewport, and lets a host ask for a sparser reading.
+      labelMaxCount: 200,
+      // Screen pixels, fixed rather than zoom-scaled: text is read at the
+      // size it is drawn, and a label that grew with the zoom would crowd
+      // out exactly the labels zooming in was meant to uncover.
+      labelFontSize: 11,
+      labelFontFamily: 'sans-serif',
+      // Any CSS font-weight: 'normal', 'bold', or a number such as 600.
+      labelFontWeight: 'normal',
+      labelColor: '#000000',
+      // Which side of its node a label sits on: 'right' (default), 'left',
+      // 'top' or 'bottom' — the last two centred on the node. The box the
+      // collision test places is the one drawn, so every position competes
+      // for room by the same rule ([D Render.6]).
+      labelPosition: 'right',
+      // The halo is a stroke under the text in this colour, so a label stays
+      // readable where it crosses edges. A triplet plus its own alpha, like
+      // the edge colours: the alpha is what lets the halo knock the edges
+      // back without blanking them out under every name.
+      labelHaloColor: '255,255,255',
+      labelHaloAlpha: 0.8,
+      labelHaloWidth: 3,
+      // Clear space around a label, in screen pixels, that no other label may
+      // enter. Zero lets labels touch, which reads as one long string.
+      labelPadding: 4,
+
       // Relation sign is carried by hue, strength by opacity: |weight| drives
       // alpha, so a weak relation reads as a faint tint and a full one as solid
       // colour. Encoding strength in the colour *channel* instead would render
@@ -346,7 +451,7 @@
       // The colour is a pale tint of the chrome's ink, not the ink itself: the
       // grid has to sit below the faintest mark the graph can make, and at
       // full ink it was competing with the edges instead of holding still
-      // behind them. Against the default white it lands near #efeff3 on the
+      // behind them. Against the default white it lands near #f5f5f8 on the
       // near side — present when looked for, gone when not. The depth fade
       // then multiplies that down again towards the back, so the far half is
       // effectively absent; raise globeGraticuleAlpha to bring it up, or
@@ -354,8 +459,16 @@
       globeGraticuleMeridians: 12,
       globeGraticuleParallels: 5,
       globeGraticuleColor: '150,150,180',
-      globeGraticuleAlpha: 0.16,
+      globeGraticuleAlpha: 0.1,
       globeGraticuleWidth: 1,
+      // Labels on the globe only on the near side, and only this far towards
+      // the viewer: camera-space depth as a fraction of the radius, so 0 is
+      // the silhouette and 1 the point facing the camera. Text on the far
+      // side would be legible through the sphere and claim space on behalf
+      // of nodes nobody can see; near the rim the surface is foreshortened
+      // and nodes crowd together on screen while the text does not shrink.
+      // 0.3 cuts at about 73° from the centre of the view.
+      globeLabelMinDepth: 0.3,
 
       // --- 'clusters' (parked, see [D View.6]) --------------------------
       // The view is not offered in the toggle: on real layouts it did not
@@ -389,18 +502,30 @@
   // The kind is what makes the trace worth having: 'ui' and 'api' land on the
   // same code, and which one arrived is exactly the question being asked when
   // a lifecycle bug is being chased. Refusals are not logged here — they go
-  // to console.warn unconditionally ([D State.1]), being a misuse rather than
-  // an event.
+  // to the warner below ([D State.1]), being a misuse rather than an event,
+  // and so stay visible with logEvents off.
   //
   // The config object is read live rather than captured, so switching the
   // flag through updateConfig() takes effect on the next event.
   function createLogger(config) {
     var PAD = '     ';
     return function (kind, message, detail) {
-      if (!config.logEvents) return;
+      if (!config.logging || !config.logEvents) return;
       var label = '[Nodino] ' + (kind + PAD).slice(0, PAD.length) + ' ' + message;
       if (detail === undefined) console.log(label);
       else console.log(label, detail);
+    };
+  }
+
+  // Every console.warn in the library goes through one of these, behind
+  // config.logging ([D Config.7]). Module-level helpers that can warn take
+  // the instance's warner as a parameter rather than reaching for console
+  // themselves: the flag is per instance, and two instances on one page may
+  // disagree. Read live, like the logger, so updateConfig() applies at once.
+  function createWarner(config) {
+    return function () {
+      if (!config.logging) return;
+      console.warn.apply(console, arguments);
     };
   }
 
@@ -421,8 +546,138 @@
     return target;
   }
 
+  // Themes ([D Config.8]): named sets of the colour fields of config.style,
+  // applied through updateConfig() like any other edit. Only colours and the
+  // alphas that go with them — sizes, physics and behaviour are not a look,
+  // and a theme that moved them would change more than how the graph reads.
+  // The light theme is not written out: it is whatever DEFAULT_CONFIG says,
+  // so the two can never drift apart.
+  var THEME_KEYS = [
+    'backgroundColor', 'outsideBackgroundColor', 'outsideColor', 'settledBackgroundColor',
+    'perimeterColor', 'nodeColor', 'nodeBorderColor', 'highlightColor', 'highlightBorderColor',
+    'labelColor', 'labelHaloColor', 'labelHaloAlpha',
+    'hitEdgeColor', 'missEdgeColor', 'maxHitAlpha', 'maxMissAlpha',
+    'proximityEdgeColor', 'proximityEdgeAlpha',
+    'globeGraticuleColor', 'globeGraticuleAlpha',
+    'clusterLightness', 'clusterOutlierColor'
+  ];
+
+  function defaultThemeStyle() {
+    var style = {};
+    THEME_KEYS.forEach(function (key) { style[key] = DEFAULT_CONFIG.style[key]; });
+    return style;
+  }
+
+  var THEMES = {
+    light: { label: 'Light (Default)', style: defaultThemeStyle() },
+    // Night sky: a deep blue field, nodes and edges pale on it. The edge hues
+    // keep their meaning — blue for a positive relation, red for a negative
+    // one, green-teal for proximity — lifted to tints that read on dark.
+    // The label halo becomes the background colour, so it still knocks the
+    // edges back behind a name instead of drawing a white box around it.
+    constellation: { label: 'Constellation', style: {
+      backgroundColor: '#0b1530',
+      outsideBackgroundColor: '#070e25',
+      outsideColor: '#070e20',
+      settledBackgroundColor: '#0b1530',
+      perimeterColor: '#c8d4ff',
+      nodeColor: '#f2f5ff',
+      nodeBorderColor: '#f2f5ff',
+      highlightColor: '#0b1530',
+      highlightBorderColor: '#ffffff',
+      labelColor: '#e6ecff',
+      labelHaloColor: '11,21,48',
+      labelHaloAlpha: 0.8,
+      hitEdgeColor: '140,180,255',
+      missEdgeColor: '255,130,150',
+      maxHitAlpha: 0.35,
+      maxMissAlpha: 0.25,
+      proximityEdgeColor: '120,230,210',
+      proximityEdgeAlpha: 0.38,
+      globeGraticuleColor: '120,140,200',
+      globeGraticuleAlpha: 0.18,
+      clusterLightness: 0.65,
+      clusterOutlierColor: '120,130,160'
+    } }
+  };
+
+  // What Nodino.themes hands out: copies, frozen all the way down, so a host
+  // can read a theme (to build its own from one, say) but cannot edit the
+  // ones every instance applies.
+  function publicThemes() {
+    var out = {};
+    Object.keys(THEMES).forEach(function (name) {
+      out[name] = Object.freeze({
+        label: THEMES[name].label,
+        style: Object.freeze(Object.assign({}, THEMES[name].style))
+      });
+    });
+    return Object.freeze(out);
+  }
+
+  // DEFAULT_CONFIG as a host may read it: a deep copy, frozen all the way
+  // down, so reading the defaults can never change what the next create()
+  // starts from. What a host needs to put back a field a dataset-scoped patch
+  // changed — load()'s config persists ([F API.2]) — or to tell which fields
+  // of its own config differ from the defaults.
+  function publicDefaults() {
+    var freeze = function (o) {
+      Object.keys(o).forEach(function (k) { if (o[k] && typeof o[k] === 'object') freeze(o[k]); });
+      return Object.freeze(o);
+    };
+    return freeze(cloneDefaultConfig());
+  }
+
+  // Every config patch goes through here — create(), load()'s config,
+  // updateConfig(). A `theme` is applied first and the rest of the patch on
+  // top, so colours named alongside a theme override it. An unknown name is
+  // warned about and dropped, so config.theme never names a theme that does
+  // not exist.
+  function mergeConfigPatch(config, patch, warn) {
+    if (!patch) return config;
+    if (patch.theme !== undefined) {
+      var theme = THEMES[patch.theme];
+      if (!theme) {
+        warn('[Nodino] Unknown theme "' + patch.theme + '" — ignored. Available: ' + Object.keys(THEMES).join(', ') + '.');
+        patch = Object.assign({}, patch);
+        delete patch.theme;
+      } else {
+        deepMerge(config.style, Object.assign({}, theme.style));
+      }
+    }
+    return deepMerge(config, patch);
+  }
+
   function cloneDefaultConfig() {
     return JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+  }
+
+  // The live config as a patch onto the defaults, for the debug panel's Copy
+  // Config ([D Config.9]): only the fields that differ, so what is copied is
+  // short, reads as the choices that were made, and stays right if a later
+  // version changes a default — and is what create()'s config,
+  // updateConfig() and load()'s config all take, deep-merged. A theme counts
+  // as one choice: its colours are the baseline, and only colours edited away
+  // from it are listed. `debug` is left out: whether the panel happens to be
+  // open is not a setting to carry into code.
+  function configPatchFromDefaults(config) {
+    var base = cloneDefaultConfig();
+    if (THEMES[config.theme]) deepMerge(base.style, Object.assign({}, THEMES[config.theme].style));
+    var patch = configDiff(config, base) || {};
+    delete patch.debug;
+    return patch;
+  }
+
+  function configDiff(value, base) {
+    if (isPlainObject(value)) {
+      var out;
+      Object.keys(value).forEach(function (key) {
+        var diff = configDiff(value[key], isPlainObject(base) ? base[key] : undefined);
+        if (diff !== undefined) { out = out || {}; out[key] = diff; }
+      });
+      return out;
+    }
+    return JSON.stringify(value) === JSON.stringify(base) ? undefined : value;
   }
 
   // ---------------------------------------------------------------------
@@ -432,7 +687,7 @@
   // back to the host beyond this module.
   // ---------------------------------------------------------------------
 
-  function buildGraphState(nodesInput, edgesInput, positionsInput, maxEdgesPerNode, globePositionsInput) {
+  function buildGraphState(nodesInput, edgesInput, positionsInput, maxEdgesPerNode, globePositionsInput, warn) {
     nodesInput = isPlainObject(nodesInput) ? nodesInput : {};
     edgesInput = Array.isArray(edgesInput) ? edgesInput : [];
     positionsInput = isPlainObject(positionsInput) ? positionsInput : {};
@@ -483,11 +738,60 @@
     // scales this has to survive (|E| in the 10^5–10^6 range for a dense
     // similarity graph) per-edge objects cost more in allocation and cache
     // misses than the whole physics step.
-    var rawA = [], rawB = [], rawW = [];
-    for (var r = 0; r < rawEdgesUid.length; r++) {
-      rawA.push(uidToNid.get(rawEdgesUid[r][0]));
-      rawB.push(uidToNid.get(rawEdgesUid[r][1]));
-      rawW.push(rawEdgesUid[r][2]);
+    //
+    // Canonical order, like the nids: each edge as (lower nid, higher nid),
+    // the list sorted by that pair and then by weight. The physics sums
+    // forces in edge order, and floating-point addition is not associative —
+    // the same graph with its edges listed in another order (a query with no
+    // ORDER BY, a reversed export) differed in the last bit after one step,
+    // and the dynamics amplified that to a visibly different layout within a
+    // thousand. Sorted here, the layout depends on the edge *set* alone
+    // ([F Det.1]), as it already did on the uid set.
+    // Sorted as numbers, not through a comparator: at the input sizes this
+    // has to take (10^5–10^6 edges, [F Data.3]) a comparator call per
+    // comparison cost a third of the whole load. Each edge becomes one exact
+    // integer — its pair, (lo·count + hi), times the edge count, plus its
+    // index — and a Float64Array sorts those natively. Integers stay exact up
+    // to 2^53, which covers any graph Nodino can draw; past it, the
+    // comparator sort is the fallback. Edges on the same pair (a duplicate in
+    // the input) come out in input order, and are then put in weight order so
+    // that too is independent of how the host listed them.
+    var m0 = rawEdgesUid.length;
+    var loA = new Int32Array(m0), hiB = new Int32Array(m0), wt = new Float64Array(m0);
+    for (var r = 0; r < m0; r++) {
+      var na = uidToNid.get(rawEdgesUid[r][0]);
+      var nb = uidToNid.get(rawEdgesUid[r][1]);
+      loA[r] = na < nb ? na : nb;
+      hiB[r] = na < nb ? nb : na;
+      wt[r] = rawEdgesUid[r][2];
+    }
+    var order = new Array(m0);
+    if (count * count * Math.max(m0, 1) < 9007199254740992) {
+      var keys = new Float64Array(m0);
+      for (var kr = 0; kr < m0; kr++) keys[kr] = (loA[kr] * count + hiB[kr]) * m0 + kr;
+      keys.sort();
+      for (var ko = 0; ko < m0; ko++) order[ko] = keys[ko] % m0;
+      // Duplicates of one pair sit next to each other; put each run in
+      // weight order (runs are a handful of edges at most).
+      for (var ru = 1; ru < m0; ru++) {
+        var cur = order[ru], at = ru;
+        while (at > 0 && loA[order[at - 1]] === loA[cur] && hiB[order[at - 1]] === hiB[cur] &&
+               wt[order[at - 1]] > wt[cur]) {
+          order[at] = order[at - 1];
+          at--;
+        }
+        order[at] = cur;
+      }
+    } else {
+      for (var oi = 0; oi < m0; oi++) order[oi] = oi;
+      order.sort(function (p, q) { return loA[p] - loA[q] || hiB[p] - hiB[q] || wt[p] - wt[q]; });
+    }
+    var rawA = new Array(m0), rawB = new Array(m0), rawW = new Array(m0);
+    for (var re = 0; re < m0; re++) {
+      var src = order[re];
+      rawA[re] = loA[src];
+      rawB[re] = hiB[src];
+      rawW[re] = wt[src];
     }
 
     // Optional bootstrap positions (uid -> {x, y} in [-1, 1]), resolved to nid
@@ -507,7 +811,7 @@
         var puid = positionKeys[pk];
         var pnid = uidToNid.get(puid);
         if (pnid === undefined) {
-          console.warn('[Nodino] Position given for unknown uid "' + puid + '" — ignored.');
+          warn('[Nodino] Position given for unknown uid "' + puid + '" — ignored.');
           continue;
         }
         var pos = positionsInput[puid];
@@ -541,7 +845,7 @@
         var guid = globeKeys[gk];
         var gnid = uidToNid.get(guid);
         if (gnid === undefined) {
-          console.warn('[Nodino] Globe position given for unknown uid "' + guid + '" — ignored.');
+          warn('[Nodino] Globe position given for unknown uid "' + guid + '" — ignored.');
           continue;
         }
         var gpos = globePositionsInput[guid];
@@ -557,6 +861,20 @@
       for (var gh = 0; gh < count; gh++) {
         if (hasGInit[gh]) globeBootstrapCount++;
         else { initGX[gh] = NaN; initGY[gh] = NaN; initGZ[gh] = NaN; }
+      }
+    }
+
+    // Node strength: the sum of each node's positive input weights, which is
+    // what ranks labels when the host supplies no priority ([D Render.6]).
+    // Read off the *input* edges, before sparsification: the kNN pass caps
+    // every node at roughly the same number of survivors, which flattens
+    // exactly the difference this is meant to measure. Negative weights are
+    // left out — being far from many things is not prominence.
+    var strength = new Float64Array(count);
+    for (var se = 0; se < rawA.length; se++) {
+      if (rawW[se] > 0) {
+        strength[rawA[se]] += rawW[se];
+        strength[rawB[se]] += rawW[se];
       }
     }
 
@@ -594,6 +912,7 @@
       // and the Map costs nothing that building it did not already cost.
       uidToNid: uidToNid,
       metadata: metadata,
+      strength: strength,
       edgeCount: edgeCount,
       edgeA: edgeA,
       edgeB: edgeB,
@@ -779,6 +1098,19 @@
   // as much of that CSS as this file needs to know: a fixed screen-space
   // offset, not a world one, so it holds steady regardless of zoom.
   var TOP_CHROME_OFFSET = 17;
+
+  // Screen pixels between a node's edge and the start of its label
+  // ([D Render.6]): enough to read as the node's name rather than as text
+  // the node happens to touch.
+  var LABEL_GAP = 3;
+
+  // The automatic globe turn after a search pick ([D Globe.12]): its duration
+  // runs from FOCUS_MIN_MS for a short turn to MIN + EXTRA for a half-turn,
+  // and the node lands at most this far from the sphere's centre (as a
+  // fraction of its radius) when the viewport centre is off the globe.
+  var FOCUS_MIN_MS = 350;
+  var FOCUS_EXTRA_MS = 450;
+  var FOCUS_MAX_OFFSET = 0.8;
 
   function layoutInitial(state) {
     var n = state.count;
@@ -1169,6 +1501,35 @@
       weightOf.set((wa < wb ? wa : wb) * n + (wa < wb ? wb : wa), state.edgeW[we]);
     }
     return weightOf;
+  }
+
+  // The proximity radius in force ([D View.13]). Under 'auto', from the
+  // density alone: n nodes spread over the unit disk (area π) put n·r²
+  // others within r of a node, so r = √(k/n) asks for k of them; the unit
+  // sphere has four times the area, so its surface radius is twice that —
+  // the factor repulsionRadiusForGlobe() already uses, for the same reason.
+  // Capped at what can still exclude anything (the disk's diameter, half the
+  // sphere's circumference); k ≤ 0 is an empty reading, as a radius of 0 is.
+  //
+  // k itself ramps up with the graph: full from PROXIMITY_FULL_AT nodes, and
+  // in proportion to √n below it. A constant k made small graphs read as
+  // dense as large ones — 16 neighbours among 60 nodes is a quarter of the
+  // graph joined to each node, a mesh rather than a picture of who is near
+  // whom — so a small graph asks for fewer, about half as many at 100 nodes.
+  // And never more than a quarter of the other nodes, for the tiniest.
+  var PROXIMITY_FULL_AT = 400;
+
+  function proximityRadiusFor(config, n, globe) {
+    if (config.proximityRadius === 'fixed') {
+      return globe ? config.globeProximityMaxDistance : config.proximityMaxDistance;
+    }
+    var k = Math.min(
+      config.proximityNeighbors * Math.min(1, Math.sqrt(n / PROXIMITY_FULL_AT)),
+      (n - 1) / 4
+    );
+    if (!(k > 0)) return 0;
+    var r = Math.sqrt(k / Math.max(n, 1));
+    return globe ? Math.min(2 * r, Math.PI) : Math.min(r, 2 * UNIT_RADIUS);
   }
 
   function computeProximity(state, radius) {
@@ -1820,6 +2181,67 @@
   }
 
   // ---------------------------------------------------------------------
+  // Labels ([D Render.6]) — what each node is called on the canvas and the
+  // order in which nodes compete for room. Both are fixed for a built graph,
+  // so they are resolved once per (re)build and never per frame; draw() only
+  // decides which of them fit.
+  // ---------------------------------------------------------------------
+
+  // `textOf(uid, m)` and `priorityOf(uid, m)` are the dataset's optional
+  // nodeLabel/nodePriority handlers ([D API.2]). A handler that throws is
+  // the host's bug, not a reason to lose the frame: the node falls back to
+  // the default for that one call, and the first failure is reported.
+  function computeLabels(state, textOf, priorityOf, warn) {
+    var n = state.count;
+    var text = new Array(n);
+    var priority = new Float64Array(n);
+    var warned = false;
+    function fail(which, err) {
+      if (warned) return;
+      warned = true;
+      warn('[Nodino] ' + which + ' threw — falling back to the default for that node', err);
+    }
+    for (var i = 0; i < n; i++) {
+      var uid = state.uids[i], m = state.metadata[i];
+      var t = uid;
+      if (textOf) {
+        try { t = textOf(uid, m); } catch (err) { fail('nodeLabel', err); t = uid; }
+        // null, undefined or '' is the host saying "no label for this one",
+        // not a failure — a dataset may only want its landmarks named.
+        t = t == null ? null : String(t);
+        if (t === '') t = null;
+      }
+      text[i] = t;
+      var p = state.strength[i];
+      if (priorityOf) {
+        try { p = Number(priorityOf(uid, m)); } catch (err) { fail('nodePriority', err); }
+        // A non-number ranks last rather than first or at random: NaN in a
+        // comparator would make the order depend on the sort's internals.
+        if (!isFinite(p)) p = -Infinity;
+      }
+      priority[i] = p;
+    }
+    var order = new Int32Array(n);
+    for (var o = 0; o < n; o++) order[o] = o;
+    // Priority descending, nid ascending on ties: a total order, so which
+    // label wins a collision depends on the data alone ([F Data.2]).
+    // Two infinite priorities subtract to NaN, which is falsy and so falls
+    // through to the nid tie-break like any other tie.
+    order.sort(function (a, b) {
+      return priority[b] - priority[a] || a - b;
+    });
+    return {
+      text: text,
+      order: order,
+      // Measured text widths, per nid, filled lazily by draw() and only for
+      // labels that actually get a chance to be placed. -1 = not measured
+      // under the current font; `font` is the string they were measured in.
+      width: new Float64Array(n).fill(-1),
+      font: ''
+    };
+  }
+
+  // ---------------------------------------------------------------------
   // Renderer — Canvas 2D, requestAnimationFrame-driven, sparse edges only,
   // pan/zoom viewport, viewport culling with a margin taken from the radius
   // actually painted ([F Render.1], [D Render.3]). There is no level of
@@ -1881,6 +2303,18 @@
     var projX = new Float64Array(0);
     var projY = new Float64Array(0);
     var projZ = new Float64Array(0);
+
+    // Label placement scratch ([D Render.6]), grown on demand and reused
+    // across frames: the rectangles placed so far (x0, y0, x1, y1 each, in
+    // screen pixels, without padding), what each one says and where, and a
+    // coarse screen grid listing which rectangles touch each cell, so a
+    // candidate is tested against its neighbours rather than every label
+    // already placed.
+    var LABEL_CELL = 64;
+    var labelRects = new Float64Array(0);
+    var labelNids = new Int32Array(0);
+    var labelAlpha = new Float64Array(0);
+    var labelGrid = [];
 
     function isGlobe() {
       return config.geometry === 'globe';
@@ -2117,6 +2551,9 @@
     // stays on the same bit of surface instead of getting faster as you zoom
     // in.
     function rotateBy(dxScreen, dyScreen) {
+      // A drag is the viewer taking the globe back: an automatic turn still
+      // in flight ([D Globe.12]) would otherwise fight the hand frame by frame.
+      focusAnim = null;
       var screenRadius = world.perimeterRadius * camera.zoom;
       if (!(screenRadius > 0)) return;
       var a = dxScreen / screenRadius;
@@ -2167,6 +2604,105 @@
       ];
     }
 
+    // Automatic turn of the globe towards a node on its far side
+    // ([D Globe.12]). One rotation, about the axis perpendicular to both the
+    // node's current direction and its target, by the angle between them: the
+    // shortest turn that brings it round, so the globe never spins about its
+    // own line of sight on the way. Animated in the renderer because the
+    // camera is the renderer's; stepped from frame() like any other redraw.
+    var focusAnim = null;
+
+    function focusOnGlobe(nid, now) {
+      var state = world.state;
+      if (!isGlobe() || nid < 0 || nid >= state.count) return false;
+      var g = state.globe, r = camera.rot;
+      var x = g.x[nid], y = g.y[nid], z = g.z[nid];
+      var cx = r[0] * x + r[1] * y + r[2] * z;
+      var cy = r[3] * x + r[4] * y + r[5] * z;
+      var cz = r[6] * x + r[7] * y + r[8] * z;
+      var cl = Math.sqrt(cx * cx + cy * cy + cz * cz);
+      if (!(cl > 1e-9)) return false;
+      cx /= cl; cy /= cl; cz /= cl;
+      // Only the far hemisphere. A node already facing the viewer is already
+      // where a search pick can be seen, and turning the globe anyway would
+      // move the view on some picks for no reason on screen.
+      if (cz >= 0) return false;
+
+      // The target is the point of the near surface under the centre of the
+      // viewport, not the globe's own centre: zoomed in and panned, the
+      // globe's centre can be off screen, and the node has to land where the
+      // viewer is looking. Pan and zoom are left alone ([D Interact.2]).
+      // Capped short of the rim, where a node would arrive foreshortened.
+      var tx = camera.x / UNIT_RADIUS, ty = camera.y / UNIT_RADIUS;
+      var d2 = tx * tx + ty * ty;
+      if (d2 > FOCUS_MAX_OFFSET * FOCUS_MAX_OFFSET) {
+        var k = FOCUS_MAX_OFFSET / Math.sqrt(d2);
+        tx *= k; ty *= k;
+        d2 = FOCUS_MAX_OFFSET * FOCUS_MAX_OFFSET;
+      }
+      var tz = Math.sqrt(1 - d2);
+
+      var dot = cx * tx + cy * ty + cz * tz;
+      if (dot > 1) dot = 1; else if (dot < -1) dot = -1;
+      var angle = Math.acos(dot);
+      var ax = cy * tz - cz * ty;
+      var ay = cz * tx - cx * tz;
+      var az = cx * ty - cy * tx;
+      var al = Math.sqrt(ax * ax + ay * ay + az * az);
+      if (al < 1e-9) {
+        // Exactly antipodal: every axis perpendicular to the node works.
+        // Turning about the screen's vertical is the one a hand would pick.
+        ax = cz; ay = 0; az = -cx;
+        al = Math.sqrt(ax * ax + az * az);
+        if (al < 1e-9) { ax = 0; ay = cz; az = -cy; al = Math.sqrt(ay * ay + az * az); }
+      }
+      focusAnim = {
+        axis: [ax / al, ay / al, az / al],
+        angle: angle,
+        rot0: camera.rot.slice(),
+        start: now,
+        // Longer for a longer turn, so the globe moves at a similar speed
+        // whatever the distance instead of whipping round on a half-turn.
+        duration: FOCUS_MIN_MS + FOCUS_EXTRA_MS * (angle / Math.PI)
+      };
+      return true;
+    }
+
+    // Advances the turn; true while it changed the camera this frame (the
+    // last frame included), so frame() knows to redraw.
+    function stepCameraAnimation(now) {
+      if (!focusAnim) return false;
+      // Switched to the plane mid-turn: nothing to show it on, and resuming
+      // it on the way back would move a globe nobody asked to move.
+      if (!isGlobe()) { focusAnim = null; return false; }
+      var t = (now - focusAnim.start) / focusAnim.duration;
+      if (!(t < 1)) t = 1;
+      // Ease in and out: a turn that starts or stops abruptly reads as a jump.
+      var e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      var q = axisAngleMatrix(focusAnim.axis, focusAnim.angle * e);
+      var r0 = focusAnim.rot0;
+      var out = new Array(9);
+      for (var i = 0; i < 3; i++) {
+        for (var j = 0; j < 3; j++) {
+          out[i * 3 + j] = q[i * 3] * r0[j] + q[i * 3 + 1] * r0[3 + j] + q[i * 3 + 2] * r0[6 + j];
+        }
+      }
+      camera.rot = orthonormalize(out);
+      if (t === 1) focusAnim = null;
+      return true;
+    }
+
+    // Rodrigues' formula, row-major, for a unit axis.
+    function axisAngleMatrix(a, theta) {
+      var x = a[0], y = a[1], z = a[2];
+      var c = Math.cos(theta), s = Math.sin(theta), v = 1 - c;
+      return [
+        c + x * x * v, x * y * v - z * s, x * z * v + y * s,
+        y * x * v + z * s, c + y * y * v, y * z * v - x * s,
+        z * x * v - y * s, z * y * v + x * s, c + z * z * v
+      ];
+    }
+
     // The world-space point on the *near* surface under a screen position, or
     // null outside the silhouette. Exact, and exactly what hit-testing wants:
     // the far hemisphere is drawn but never picked, so a faded node behind the
@@ -2214,7 +2750,8 @@
     // bar that was never drawn would just be off-center for no reason.
     function centerY() {
       var half = canvas.height / 2;
-      return (config.showSearch || config.showGeometryToggle || config.showViewModeToggle)
+      return (config.showSearch || config.showGeometryToggle || config.showViewModeToggle ||
+              config.showLabelsToggle)
         ? half + TOP_CHROME_OFFSET
         : half;
     }
@@ -2318,6 +2855,151 @@
       return config.showPulse ? pulseAlpha(runElapsedMs) : config.style.perimeterIdleAlpha;
     }
 
+    // Node names on the canvas ([D Render.6]). Greedy placement in priority
+    // order: a label is drawn only if its box, grown by labelPadding, clears
+    // every box already placed — so what is on screen is always the most
+    // important names that fit, and zooming in, which spreads the nodes
+    // apart, is what makes room for the next ones. Recomputed on every
+    // redraw, never cached across frames: the camera is what changes between
+    // them, and the placement is a function of where the nodes are on screen.
+    //
+    // Only while the layout is stopped. A moving layout would reshuffle the
+    // winners every frame and the names would flicker in and out — the same
+    // reason the output readings wait for a still layout ([D View.2]).
+    function drawLabels(stopped, sx, sy, halfW, halfH, camX, camY, zoom, nodeRadius, globe) {
+      var labels = world.labels;
+      var style = config.style;
+      var state = world.state;
+      if (!config.showNodeLabels || !stopped || !labels || state.count === 0) return;
+      var maxCount = Math.floor(style.labelMaxCount);
+      var fontSize = style.labelFontSize;
+      if (!(maxCount > 0) || !(fontSize > 0)) return;
+      var zoomRatio = baseZoom > 0 ? camera.zoom / baseZoom : 1;
+      // With a relative tolerance: the fitted view is exactly 1 only until a
+      // resize rescales the zoom by a ratio of two base zooms, which can land
+      // it a rounding error below — and labels vanishing on a window resize
+      // at the default view would read as a bug, which it would be.
+      if (zoomRatio < style.labelMinZoom * (1 - 1e-9)) return;
+
+      ctx.save();
+      var font = (style.labelFontWeight || 'normal') + ' ' + fontSize + 'px ' + style.labelFontFamily;
+      var position = style.labelPosition;
+      ctx.font = font;
+      // Widths are only valid for the font they were measured in, and the
+      // font is live config.
+      if (labels.font !== font) {
+        labels.width.fill(-1);
+        labels.font = font;
+      }
+
+      if (labelNids.length < maxCount) {
+        labelRects = new Float64Array(maxCount * 4);
+        labelNids = new Int32Array(maxCount);
+        labelAlpha = new Float64Array(maxCount);
+      }
+      var W = canvas.width, H = canvas.height;
+      var cols = Math.ceil(W / LABEL_CELL), rows = Math.ceil(H / LABEL_CELL);
+      var cellCount = cols * rows;
+      while (labelGrid.length < cellCount) labelGrid.push([]);
+      for (var c = 0; c < cellCount; c++) labelGrid[c].length = 0;
+
+      var pad = Math.max(0, style.labelPadding);
+      var halfH2 = fontSize / 2;
+      var minDepth = style.globeLabelMinDepth * UNIT_RADIUS;
+      var placed = 0;
+      var s;
+
+      function place(i, radius) {
+        var text = labels.text[i];
+        if (text === null) return;
+        if (globe && projZ[i] < minDepth) return;
+        var px = halfW + (sx[i] - camX) * zoom;
+        var py = halfH + (sy[i] - camY) * zoom;
+        if (px < 0 || px > W || py < 0 || py > H) return;
+        var width = labels.width[i];
+        if (width < 0) width = labels.width[i] = ctx.measureText(text).width;
+        var x0, x1, y0, y1;
+        if (position === 'left') {
+          x1 = px - radius - LABEL_GAP; x0 = x1 - width;
+          y0 = py - halfH2; y1 = py + halfH2;
+        } else if (position === 'top' || position === 'bottom') {
+          x0 = px - width / 2; x1 = x0 + width;
+          if (position === 'top') { y1 = py - radius - LABEL_GAP; y0 = y1 - fontSize; }
+          else { y0 = py + radius + LABEL_GAP; y1 = y0 + fontSize; }
+        } else {
+          x0 = px + radius + LABEL_GAP; x1 = x0 + width;
+          y0 = py - halfH2; y1 = py + halfH2;
+        }
+
+        var cx0 = Math.max(0, Math.floor((x0 - pad) / LABEL_CELL));
+        var cx1 = Math.min(cols - 1, Math.floor((x1 + pad) / LABEL_CELL));
+        var cy0 = Math.max(0, Math.floor((y0 - pad) / LABEL_CELL));
+        var cy1 = Math.min(rows - 1, Math.floor((y1 + pad) / LABEL_CELL));
+        var gx, gy, k;
+        for (gy = cy0; gy <= cy1; gy++) {
+          for (gx = cx0; gx <= cx1; gx++) {
+            var cell = labelGrid[gy * cols + gx];
+            for (k = 0; k < cell.length; k++) {
+              var r = cell[k] * 4;
+              if (x0 - pad < labelRects[r + 2] && x1 + pad > labelRects[r] &&
+                  y0 - pad < labelRects[r + 3] && y1 + pad > labelRects[r + 1]) return;
+            }
+          }
+        }
+
+        var slot = placed++;
+        labelRects[slot * 4] = x0; labelRects[slot * 4 + 1] = y0;
+        labelRects[slot * 4 + 2] = x1; labelRects[slot * 4 + 3] = y1;
+        labelNids[slot] = i;
+        labelAlpha[slot] = globe ? depthAlpha(depthSlab(projZ[i])) : 1;
+        // Indexed by the unpadded box: the padding is applied once, on the
+        // candidate's side of the test, so two labels end up exactly
+        // labelPadding apart rather than twice that.
+        var rx0 = Math.max(0, Math.floor(x0 / LABEL_CELL));
+        var rx1 = Math.min(cols - 1, Math.floor(x1 / LABEL_CELL));
+        var ry0 = Math.max(0, Math.floor(y0 / LABEL_CELL));
+        var ry1 = Math.min(rows - 1, Math.floor(y1 / LABEL_CELL));
+        for (gy = ry0; gy <= ry1; gy++) {
+          for (gx = rx0; gx <= rx1; gx++) labelGrid[gy * cols + gx].push(slot);
+        }
+      }
+
+      var order = labels.order;
+      for (var o = 0; o < order.length && placed < maxCount; o++) place(order[o], nodeRadius);
+
+      // The marked nodes compete for room like any other and are then left
+      // undrawn: their card already names them, and a label beside the
+      // highlight would only repeat it. Placed rather than skipped so that
+      // hovering never reshuffles the labels around the node under the
+      // cursor — the space it held stays empty instead of being handed to a
+      // neighbour, and moving the mouse leaves the rest of the screen still.
+      for (s = 0; s < placed; s++) {
+        if (labelNids[s] === highlighted || labelNids[s] === pinned) labelAlpha[s] = 0;
+      }
+
+      // Every halo before any text, so a halo can never paint over the
+      // letters of the label next to it.
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      if (style.labelHaloWidth > 0 && style.labelHaloAlpha > 0) {
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = style.labelHaloWidth * 2;
+        ctx.strokeStyle = 'rgba(' + style.labelHaloColor + ',' + style.labelHaloAlpha + ')';
+        for (s = 0; s < placed; s++) {
+          if (labelAlpha[s] === 0) continue;
+          ctx.globalAlpha = labelAlpha[s];
+          ctx.strokeText(labels.text[labelNids[s]], labelRects[s * 4], (labelRects[s * 4 + 1] + labelRects[s * 4 + 3]) / 2);
+        }
+      }
+      ctx.fillStyle = style.labelColor;
+      for (s = 0; s < placed; s++) {
+        if (labelAlpha[s] === 0) continue;
+        ctx.globalAlpha = labelAlpha[s];
+        ctx.fillText(labels.text[labelNids[s]], labelRects[s * 4], (labelRects[s * 4 + 1] + labelRects[s * 4 + 3]) / 2);
+      }
+      ctx.restore();
+    }
+
     function draw(status) {
       var state = world.state;
       var style = config.style;
@@ -2339,7 +3021,8 @@
       // ever been started; once started (running or paused alike), it's
       // activeAlpha() — see the comment above for why paused just works.
       var perimeterAlpha = (status && status.hasStarted) ? activeAlpha(runElapsedMs) : style.perimeterIdleAlpha;
-      var outsideFill = style.backgroundColor;
+      var outsideFill = style.outsideBackgroundColor;
+      var insideFill = style.backgroundColor;
       if (status && status.settled) {
         // Ease from wherever the pulse was at the instant convergence was
         // detected down/up to the resting alpha — no separate "last pulse"
@@ -2355,17 +3038,19 @@
         // exactly the phase the pulse had at the moment of convergence.
         var startAlpha = activeAlpha(runElapsedMs);
         perimeterAlpha = lerp(startAlpha, style.perimeterSettledAlpha, t);
-        outsideFill = lerpHexColor(style.backgroundColor, style.outsideColor, t);
+        outsideFill = lerpHexColor(style.outsideBackgroundColor, style.outsideColor, t);
+        insideFill = lerpHexColor(style.backgroundColor, style.settledBackgroundColor, t);
       } else {
-        // Mirror of the entering transition above: eases the outer tint back
-        // towards backgroundColor instead of cutting it the instant a fresh
+        // Mirror of the entering transition above: eases both tints back to
+        // their unsettled colours instead of cutting them the instant a fresh
         // generate/restart/load flips settled back to false.
         if (status && status.unsettledAt >= 0) {
           var elapsedOut = performance.now() - status.unsettledAt;
           var tOut = style.settledTransitionDuration > 0
             ? Math.max(0, Math.min(1, elapsedOut / style.settledTransitionDuration))
             : 1;
-          outsideFill = lerpHexColor(style.outsideColor, style.backgroundColor, tOut);
+          outsideFill = lerpHexColor(style.outsideColor, style.outsideBackgroundColor, tOut);
+          insideFill = lerpHexColor(style.settledBackgroundColor, style.backgroundColor, tOut);
         }
       }
 
@@ -2373,7 +3058,7 @@
       // was resolved to above.
       ctx.fillStyle = outsideFill;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = style.backgroundColor;
+      ctx.fillStyle = insideFill;
       if (hasPerimeter) {
         ctx.beginPath();
         ctx.arc(center[0], center[1], screenRadius, 0, Math.PI * 2);
@@ -2745,10 +3430,10 @@
       if (highlighted >= 0 || pinned >= 0) {
         // Scaled by whatever factor the node radius just took, so the
         // highlight keeps the ratio to a plain node that the defaults
-        // establish. Held fixed it stopped reading as a highlight at high
-        // zoom: nodeRadiusMax and highlightRadius are both 5, so a zoomed-in
-        // node reached exactly the size of the thing marking it and only the
-        // fill colour was left to tell them apart.
+        // establish. Held fixed it stops reading as a highlight at high zoom
+        // whenever nodeRadiusMax comes anywhere near highlightRadius: a
+        // zoomed-in node reaches the size of the thing marking it and only
+        // the fill colour is left to tell them apart.
         var highlightRadius = style.nodeRadius > 0
           ? style.highlightRadius * (nodeRadius / style.nodeRadius)
           : style.highlightRadius;
@@ -2776,6 +3461,9 @@
           }
         }
       }
+
+      // Last of all, over the nodes and edges they name.
+      drawLabels(status && status.stopped, sx, sy, halfW, halfH, camX, camY, zoom, nodeRadius, globe);
     }
 
     // Recomputes the fit-to-view reference zoom for a new world radius while
@@ -2857,7 +3545,9 @@
       // layout never touches it ([D Interact.2]).
       isGlobe: isGlobe,
       rotateBy: rotateBy,
-      pickGlobe: pickGlobe
+      pickGlobe: pickGlobe,
+      focusOnGlobe: focusOnGlobe,
+      stepCameraAnimation: stepCameraAnimation
     };
   }
 
@@ -2998,12 +3688,13 @@
       };
     }
 
-    // What a one-pointer drag does right now ([D Globe.7]). On the plane it
-    // has always panned and still does. On the globe the primary drag turns
-    // the world — that is the gesture the geometry asks for, and panning a
-    // sphere that fills its own silhouette is the lesser of the two — while
-    // the middle button and Shift both still pan, so the flat gesture is never
-    // actually taken away.
+    // What a one-pointer drag does right now ([D Globe.7]). On the plane every
+    // drag pans — primary or middle button alike, so the middle-drag that pans
+    // the globe pans here too and one gesture means the same in both
+    // geometries. On the globe the primary drag turns the world — that is the
+    // gesture the geometry asks for, and panning a sphere that fills its own
+    // silhouette is the lesser of the two — while the middle button and Shift
+    // both still pan, so the flat gesture is never actually taken away.
     function dragMode(e) {
       if (!renderer.isGlobe()) return 'pan';
       if (e.pointerType === 'mouse' && (e.button === 1 || e.buttons === 4)) return 'pan';
@@ -3015,9 +3706,10 @@
     function onPointerDown(e) {
       // Secondary mouse buttons are not a pan: right-click used to start one
       // and leave the cursor stuck in 'grabbing' behind the context menu. The
-      // middle button is now an exception, being the globe's pan gesture.
+      // middle button is the exception, in both geometries: it is the globe's
+      // pan gesture, and the plane answers it the same way.
       var middle = e.pointerType === 'mouse' && e.button === 1;
-      if (e.pointerType === 'mouse' && e.button !== 0 && !(middle && renderer.isGlobe())) return;
+      if (e.pointerType === 'mouse' && e.button !== 0 && !middle) return;
       // Otherwise a middle-drag scrolls the page under the gesture.
       if (middle) e.preventDefault();
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -3028,7 +3720,7 @@
         lastPanY = e.clientY;
         activeDrag = dragMode(e);
         canvas.style.cursor = 'grabbing';
-        // The middle button pans the globe and nothing else: a click is the
+        // The middle button pans and nothing else: a click is the
         // primary button, or a finger, and never the one whose gesture is
         // already "move the view without hovering anything".
         clickCandidate = !middle;
@@ -3047,7 +3739,7 @@
         lastPanY = geo.y;
         pinchSpan = geo.span;
         clickCandidate = false;
-        hooks.onHoverEnd();
+        hooks.onHoverEnd(e);
       }
     }
 
@@ -3089,7 +3781,7 @@
         }
         lastPanX = e.clientX;
         lastPanY = e.clientY;
-        hooks.onHoverEnd();
+        hooks.onHoverEnd(e);
         hooks.onViewChange();
         return;
       }
@@ -3101,10 +3793,10 @@
       var nid = findNodeAt(e.clientX - rect.left, e.clientY - rect.top);
       if (nid >= 0) {
         canvas.style.cursor = 'pointer';
-        hooks.onHover(nid, e.clientX, e.clientY);
+        hooks.onHover(nid, e.clientX, e.clientY, e);
       } else {
         canvas.style.cursor = 'grab';
-        hooks.onHoverEnd();
+        hooks.onHoverEnd(e);
       }
     }
 
@@ -3122,7 +3814,7 @@
         var clickRect = canvas.getBoundingClientRect();
         hooks.onClick(
           findNodeAt(e.clientX - clickRect.left, e.clientY - clickRect.top),
-          e.clientX, e.clientY
+          e.clientX, e.clientY, e
         );
       }
       if (e.pointerId === clickId) clickCandidate = false;
@@ -3151,7 +3843,7 @@
     }
 
     function onPointerLeave(e) {
-      if (pointers.size === 0 && e.pointerType === 'mouse') hooks.onHoverEnd();
+      if (pointers.size === 0 && e.pointerType === 'mouse') hooks.onHoverEnd(e);
     }
 
     function onWheel(e) {
@@ -3202,12 +3894,13 @@
   // changes sides, so nothing here has a mode to be in.
   // ---------------------------------------------------------------------
 
-  function createDetailPanel(container, pinned) {
+  function createDetailPanel(container, pinned, warn) {
     var el = document.createElement('div');
     // Static chrome lives in nodino.css (.nodino-detail-panel, plus
     // .nodino-pinned for the pinned instance — `pointer-events: auto` and a
     // heavier card); only the per-call position/visibility below is set here.
-    el.className = 'nodino-detail-panel' + (pinned ? ' nodino-pinned' : '');
+    var BASE_CLASS = 'nodino-detail-panel' + (pinned ? ' nodino-pinned' : '');
+    el.className = BASE_CLASS;
 
     // Two slots rather than one innerHTML. The uid is the one thing Nodino
     // always knows about a node, so it is always the title and is never at
@@ -3256,6 +3949,14 @@
 
     function show(node, screenX, screenY, resolveContent) {
       var myToken = ++token;
+      // The card itself is handed to the handler too ([D API.15]), and one
+      // element serves every node — so it goes back to Nodino's own state
+      // first: its two classes and no inline style. Whatever the host added
+      // for the previous node is gone, and a class it adds now lasts exactly
+      // as long as this node's card. Position and visibility are re-set
+      // below and by moveTo(), as on every call.
+      el.className = BASE_CLASS;
+      el.style.cssText = '';
       el.style.display = 'block';
 
       // textContent, not innerHTML: a uid is host data, never markup.
@@ -3285,7 +3986,7 @@
       // element: a spinner, a skeleton or nothing at all is a decision about
       // the host's own data, and any placeholder Nodino invented would have
       // to be overridden by every host that wanted a different one.
-      var result = resolveContent(node, bodyEl);
+      var result = resolveContent(node, bodyEl, el);
       if (result && typeof result.then === 'function') {
         // Against whatever the handler injected synchronously — its own
         // loading state, typically ([D API.5]) — and again when the promise
@@ -3305,7 +4006,7 @@
           // card it happened in, the two handlers being separate host code
           // that can fail separately ([D API.11]).
           if (myToken === token) {
-            console.warn('[Nodino] ' + (pinned ? 'onNodePin' : 'onNodeHover') + ' rejected', err);
+            warn('[Nodino] ' + (pinned ? 'onNodePin' : 'onNodeHover') + ' rejected', err);
           }
         });
       } else {
@@ -3382,6 +4083,15 @@
     // ['clusters', 'Clusters', true]
   ];
 
+  // Every chrome button is made here. type="button" because the default is
+  // "submit": a host that mounts Nodino inside a <form> would otherwise have
+  // every toggle and control submit it.
+  function createButton() {
+    var el = document.createElement('button');
+    el.type = 'button';
+    return el;
+  }
+
   function createViewModeToggle(container, config, onChange, stopped) {
     // Static chrome lives in nodino.css (.nodino-view-toggle); only the
     // active/inactive state and each button's disabled flag are set here.
@@ -3390,7 +4100,7 @@
     container.appendChild(el);
 
     var buttons = VIEW_MODES.map(function (entry) {
-      var button = document.createElement('button');
+      var button = createButton();
       button.textContent = entry[1];
       button.addEventListener('click', function () {
         onChange({ viewMode: entry[0] });
@@ -3418,6 +4128,7 @@
         var entry = buttons[i];
         entry.el.disabled = entry.needsStopped && !nowStopped;
         entry.el.classList.toggle('active', config.viewMode === entry.mode);
+        entry.el.setAttribute('aria-pressed', config.viewMode === entry.mode ? 'true' : 'false');
       }
     }
     sync(!!stopped);
@@ -3440,12 +4151,12 @@
 
   var GEOMETRY_ICONS = {
     // A flat sheet seen edge-on in perspective — the disk, at an angle.
-    plane: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" ' +
+    plane: '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false" fill="none" ' +
       'stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">' +
       '<path d="M8 3.2 14 8l-6 4.8L2 8z"/></svg>',
     // A sphere with one meridian and one parallel: the least that reads as a
     // globe rather than as a circle.
-    globe: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" ' +
+    globe: '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false" fill="none" ' +
       'stroke="currentColor" stroke-width="1.3">' +
       '<circle cx="8" cy="8" r="5.6"/><ellipse cx="8" cy="8" rx="2.4" ry="5.6"/>' +
       '<path d="M2.6 6.2h10.8M2.6 9.8h10.8"/></svg>'
@@ -3462,11 +4173,12 @@
     container.appendChild(el);
 
     var buttons = GEOMETRIES.map(function (entry) {
-      var button = document.createElement('button');
+      var button = createButton();
       button.innerHTML = GEOMETRY_ICONS[entry[1]] +
         '<span class="nodino-geometry-toggle-label">' + entry[3] + '</span>';
+      // No aria-label: the visible 2D/3D is the name, so a voice command
+      // that reads the screen matches it; the long text is the description.
       button.title = entry[2];
-      button.setAttribute('aria-label', entry[2]);
       button.addEventListener('click', function () {
         onChange({ geometry: entry[0] });
       });
@@ -3481,7 +4193,57 @@
     function sync() {
       for (var i = 0; i < buttons.length; i++) {
         buttons[i].el.classList.toggle('active', config.geometry === buttons[i].geometry);
+        buttons[i].el.setAttribute('aria-pressed', config.geometry === buttons[i].geometry ? 'true' : 'false');
       }
+    }
+    sync();
+
+    return { sync: sync, destroy: function () { container.removeChild(el); } };
+  }
+
+  // ---------------------------------------------------------------------
+  // Labels Toggle — one eye button, right of the view-mode toggle, flipping
+  // config.showNodeLabels ([D Render.6]). An on/off rather than a choice
+  // between readings, so one button rather than a pair: the eye open or
+  // struck through says which state is in force, and the pill's active look
+  // says the same thing a second way. Suppressed with
+  // config.showLabelsToggle = false.
+  // ---------------------------------------------------------------------
+
+  var LABEL_ICONS = {
+    on: '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false" fill="none" ' +
+      'stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">' +
+      '<path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/>' +
+      '<circle cx="8" cy="8" r="2"/></svg>',
+    // The same eye, struck through: the conventional "hidden".
+    off: '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false" fill="none" ' +
+      'stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">' +
+      '<path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/>' +
+      '<circle cx="8" cy="8" r="2"/><path d="M2.5 13.5l11-11"/></svg>'
+  };
+
+  function createLabelsToggle(container, config, onChange) {
+    var el = document.createElement('div');
+    el.className = 'nodino-labels-toggle';
+    container.appendChild(el);
+
+    var button = createButton();
+    button.addEventListener('click', function () {
+      onChange({ showNodeLabels: !config.showNodeLabels });
+    });
+    el.appendChild(button);
+
+    // No disabled state while running, although labels are only drawn on a
+    // still layout: this sets a preference, and a preference set mid-run is
+    // simply honoured once the layout stops.
+    function sync() {
+      var on = !!config.showNodeLabels;
+      button.innerHTML = on ? LABEL_ICONS.on : LABEL_ICONS.off;
+      button.classList.toggle('active', on);
+      var tip = on ? 'Hide node labels' : 'Show node labels';
+      button.title = tip;
+      button.setAttribute('aria-label', tip);
+      button.setAttribute('aria-pressed', on ? 'true' : 'false');
     }
     sync();
 
@@ -3505,10 +4267,21 @@
   // them. It knows which uid a row names and nothing else about the graph.
   // ---------------------------------------------------------------------
 
-  // How many rows the list offers. A cap rather than a scroller: past a
-  // dozen the list has stopped answering the question and the query is what
-  // needs narrowing.
-  var SEARCH_MAX_RESULTS = 12;
+  // config.searchMaxResults, made safe to slice by: a whole number of rows,
+  // at least one. A bad value degrades to the default instead of emptying
+  // the list, which would read as a search that finds nothing.
+  function searchCap(value) {
+    return typeof value === 'number' && value >= 1 ? Math.floor(value) : DEFAULT_CONFIG.searchMaxResults;
+  }
+
+  // Element ids for the search list's ARIA wiring, unique per page so two
+  // instances never share one. A counter, not anything random: ids are not
+  // layout, but nothing in this file draws on Math.random() ([F Det.1]).
+  var nextDomId = 0;
+  function domId(prefix) {
+    nextDomId++;
+    return 'nodino-' + prefix + '-' + nextDomId;
+  }
 
   function createSearchBar(container, hooks) {
     var el = document.createElement('div');
@@ -3522,6 +4295,9 @@
     input.className = 'nodino-search-input';
     input.placeholder = 'Search…';
     input.setAttribute('aria-label', 'Search nodes by uid');
+    input.setAttribute('role', 'combobox');
+    input.setAttribute('aria-autocomplete', 'list');
+    input.setAttribute('aria-expanded', 'false');
     // Nothing here wants a browser's own dropdown of past values on top of
     // the one below.
     input.setAttribute('autocomplete', 'off');
@@ -3530,6 +4306,10 @@
 
     var list = document.createElement('div');
     list.className = 'nodino-search-list';
+    list.id = domId('search-list');
+    list.setAttribute('role', 'listbox');
+    list.setAttribute('aria-label', 'Matching nodes');
+    input.setAttribute('aria-controls', list.id);
     el.appendChild(list);
     container.appendChild(el);
 
@@ -3547,16 +4327,30 @@
     // hover has to go for the same reason it goes when the cursor leaves the
     // canvas: there is no longer a row being read, so there is nothing the
     // card on screen is about.
+    // The one place the list opens or closes, so aria-expanded can never
+    // disagree with what is on screen.
+    function setOpen(open) {
+      list.classList.toggle('nodino-open', open);
+      input.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+
     function close() {
       clearMark();
-      list.classList.remove('nodino-open');
+      setOpen(false);
+      // A list browsed from an empty box goes with it, so a later focus on
+      // the still-empty box does not re-offer it ([D Search.3]).
+      if (!input.value.trim()) matches = [];
       active = -1;
       hooks.onHoverEnd();
     }
 
     function clearMark() {
       var rows = list.children;
-      if (active >= 0 && active < rows.length) rows[active].classList.remove('nodino-active');
+      if (active >= 0 && active < rows.length) {
+        rows[active].classList.remove('nodino-active');
+        rows[active].setAttribute('aria-selected', 'false');
+      }
+      input.removeAttribute('aria-activedescendant');
     }
 
     // Prefix matches first, then the rest, both in the uid set's own order
@@ -3576,15 +4370,46 @@
     function matchesFor(query) {
       var needle = query.toLowerCase();
       var uids = hooks.getUids();
+      var cap = hooks.getMaxResults();
+      var exact = hasUid(uids, query);
       var prefix = [];
       var inner = [];
       for (var i = 0; i < uids.length; i++) {
         var at = uids[i].toLowerCase().indexOf(needle);
         if (at === 0) prefix.push(uids[i]);
-        else if (at > 0 && inner.length < SEARCH_MAX_RESULTS) inner.push(uids[i]);
-        if (prefix.length >= SEARCH_MAX_RESULTS) break;
+        else if (at > 0 && inner.length < cap) inner.push(uids[i]);
+        if (prefix.length >= cap) break;
       }
-      return prefix.concat(inner).slice(0, SEARCH_MAX_RESULTS);
+      var result = prefix.concat(inner).slice(0, cap);
+      // A uid typed in full is always on offer, first if the cap would have
+      // pushed it out: the case-insensitive buckets can fill up with other
+      // casings of the same prefix before the scan reaches it.
+      if (exact && result.indexOf(query) < 0) result = [query].concat(result).slice(0, cap);
+      return result;
+    }
+
+    // `uids` is sorted (UTF-16 order, [F Data.2]), so membership is a binary
+    // search rather than a scan per keystroke.
+    function hasUid(uids, uid) {
+      var lo = 0, hi = uids.length - 1;
+      while (lo <= hi) {
+        var mid = (lo + hi) >> 1;
+        if (uids[mid] === uid) return true;
+        if (uids[mid] < uid) lo = mid + 1; else hi = mid - 1;
+      }
+      return false;
+    }
+
+    // Marks the row the query already names ([D Search.5]): the uid typed in
+    // full, exactly — case included, since a uid is an identifier — or, failing
+    // that, the only row left. The same as arrowing onto it: the row is lit,
+    // its node hovered, and Enter pins it. Nothing is pinned by typing.
+    function autoSelect() {
+      if (!list.classList.contains('nodino-open')) return;
+      var query = input.value.trim();
+      var i = query ? matches.indexOf(query) : -1;
+      if (i < 0 && matches.length === 1) i = 0;
+      if (i >= 0 && i !== active) read(i);
     }
 
     // Marks row `i` and hovers its node — the row being read. The single
@@ -3596,6 +4421,8 @@
       var rows = list.children;
       active = i;
       rows[i].classList.add('nodino-active');
+      rows[i].setAttribute('aria-selected', 'true');
+      input.setAttribute('aria-activedescendant', rows[i].id);
       hooks.onHover(matches[i]);
     }
 
@@ -3621,16 +4448,23 @@
       // is on screen for it is about to be about nothing. Ending the hover
       // here rather than in the caller keeps it tied to what invalidates it.
       hooks.onHoverEnd();
+      buildRows();
+      setOpen(matches.length > 0);
+    }
+
+    function buildRows() {
       clearMark();
       list.textContent = '';
       for (var i = 0; i < matches.length; i++) {
         var row = document.createElement('div');
         row.className = 'nodino-search-item';
+        row.id = list.id + '-' + i;
+        row.setAttribute('role', 'option');
+        row.setAttribute('aria-selected', 'false');
         row.textContent = matches[i];
         bindRow(row, i);
         list.appendChild(row);
       }
-      list.classList.toggle('nodino-open', matches.length > 0);
       active = -1;
     }
 
@@ -3641,13 +4475,17 @@
       // it would be noise on every focus and every backspace to the start.
       matches = query ? matchesFor(query) : [];
       render();
+      autoSelect();
     });
 
     // Re-offers the last query when the box is focused again, so a list
     // dismissed by Esc or by a click elsewhere comes back without having to
     // retype it.
     input.addEventListener('focus', function () {
-      if (matches.length > 0) list.classList.add('nodino-open');
+      if (matches.length > 0) {
+        setOpen(true);
+        autoSelect();
+      }
     });
 
     // The list is inside the widget's container, so a click on a row is also
@@ -3668,15 +4506,26 @@
 
     input.addEventListener('keydown', function (e) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        // Only while the list is showing: Esc dismisses it without moving the
-        // focus out of the box ([F Search.1]), and walking a list nobody can
-        // see — hovering a node a row at a time — is not what the key means.
-        if (!list.classList.contains('nodino-open')) return;
+        // An empty box offers nothing on focus or typing ([D Search.3]), but
+        // an arrow is an explicit request to browse: it lists the first
+        // uids in the set's own order. A query that matched nothing still
+        // has nothing to walk.
+        if (matches.length === 0) {
+          if (input.value.trim()) return;
+          matches = hooks.getUids().slice(0, hooks.getMaxResults());
+          if (matches.length === 0) return;
+          render();
+        }
         // Held down, an arrow key scrolls the page this is embedded in as
         // well as walking the list. Only these two are claimed; every other
         // key the box receives is the box's own business.
         e.preventDefault();
         var step = e.key === 'ArrowDown' ? 1 : -1;
+        // A list dismissed by Esc, or closed by a pick, comes back on an
+        // arrow — the same list a refocus would re-offer — opening at the top
+        // going down and at the bottom going up. close() has already reset
+        // `active`, so the branch below lands on the first or last row.
+        if (!list.classList.contains('nodino-open')) setOpen(true);
         // Wraps, and opens at the top going down / at the bottom going up,
         // so the first press in either direction lands somewhere useful
         // rather than being swallowed.
@@ -3688,8 +4537,14 @@
       }
       // The keyboard's click, and it pins for the same reason the click does
       // ([D Search.2]) — the arrows having already done the looking.
+      // With a single row showing there is nothing left to look through, so
+      // Enter picks it without the arrow press first.
       if (e.key === 'Enter') {
-        choose(active);
+        if (active < 0 && matches.length === 1 && list.classList.contains('nodino-open')) {
+          choose(0);
+        } else {
+          choose(active);
+        }
         return;
       }
       if (e.key === 'Escape') {
@@ -3716,7 +4571,20 @@
       close();
     }
 
-    return { sync: sync, destroy: function () { container.removeChild(el); } };
+    // Called after update() ([F API.14]): the uid set changed but the graph
+    // is the same graph, so the query stands and is asked again — rows for
+    // removed nodes go, rows for added ones appear. Open or closed is left as
+    // it was (closed if nothing matches any more), and no hover is ended:
+    // the canvas hover, if any, is not this list's to end.
+    function refresh() {
+      var query = input.value.trim();
+      var wasOpen = list.classList.contains('nodino-open');
+      matches = query ? matchesFor(query) : [];
+      buildRows();
+      setOpen(wasOpen && matches.length > 0);
+    }
+
+    return { sync: sync, refresh: refresh, destroy: function () { container.removeChild(el); } };
   }
 
   // ---------------------------------------------------------------------
@@ -3752,13 +4620,17 @@
 
     var label = document.createElement('span');
     label.className = 'nodino-sim-state';
+    // A status region: a screen reader hears the run reach "settled" on its
+    // own, which is otherwise only a change of colour on the canvas.
+    label.setAttribute('role', 'status');
     el.appendChild(label);
 
     var buttons = [];
     SIM_CONTROLS.forEach(function (spec) {
-      var button = document.createElement('button');
+      var button = createButton();
       var glyph = document.createElement('span');
       glyph.className = 'nodino-sim-glyph';
+      glyph.setAttribute('aria-hidden', 'true');
       glyph.textContent = spec[1];
       button.appendChild(glyph);
       button.appendChild(document.createTextNode(spec[2]));
@@ -3892,14 +4764,16 @@
     var el = document.createElement('div');
     el.className = 'nodino-debug-toggle';
 
-    var button = document.createElement('button');
+    var button = createButton();
     button.textContent = '⚙';
     button.title = 'Toggle the debug/config panel';
+    button.setAttribute('aria-label', 'Config panel');
     el.appendChild(button);
     container.appendChild(el);
 
     function sync() {
       button.classList.toggle('active', !!config.debug);
+      button.setAttribute('aria-pressed', config.debug ? 'true' : 'false');
     }
     sync();
 
@@ -3979,6 +4853,7 @@
       if (hint) {
         help = document.createElement('span');
         help.className = 'nodino-help';
+        help.setAttribute('aria-hidden', 'true');
         help.textContent = '?';
         help.title = hint;
         labelEl.appendChild(help);
@@ -4054,6 +4929,7 @@
       var row = addRow();
       var help = addLabel(row, label, hint);
       var input = document.createElement('input');
+      input.setAttribute('aria-label', label);
       input.type = 'number';
       input.step = String(step);
       input.value = getPath(config, path);
@@ -4075,6 +4951,7 @@
       var row = addRow();
       addLabel(row, label, hint);
       var input = document.createElement('input');
+      input.setAttribute('aria-label', label);
       input.type = 'text';
       input.value = getPath(config, path);
       if (hint) input.title = hint;
@@ -4090,25 +4967,28 @@
     // Boolean fields render as a true/false <select> rather than a checkbox,
     // so they share the same fixed control width as every other field
     // instead of the checkbox's native (much narrower) box.
-    function addSelectField(path, label, hint) {
+    // `choices`, when given, makes it a pick among those strings instead of
+    // a true/false — same control, same width, a different value type.
+    function addSelectField(path, label, hint, choices) {
       var row = addRow();
       addLabel(row, label, hint);
       var input = document.createElement('select');
-      ['true', 'false'].forEach(function (v) {
+      input.setAttribute('aria-label', label);
+      (choices || ['true', 'false']).forEach(function (v) {
         var option = document.createElement('option');
         option.value = v;
         option.textContent = v;
         input.appendChild(option);
       });
-      input.value = String(!!getPath(config, path));
+      input.value = choices ? String(getPath(config, path)) : String(!!getPath(config, path));
       if (hint) input.title = hint;
       input.addEventListener('change', function () {
         var patch = {};
-        setPath(patch, path, input.value === 'true');
+        setPath(patch, path, choices ? input.value : input.value === 'true');
         onChange(patch);
       });
       row.appendChild(input);
-      bindField(input, path, 'bool');
+      bindField(input, path, choices ? 'choice' : 'bool');
       return input;
     }
 
@@ -4233,6 +5113,33 @@
     addColorField('style.highlightBorderColor', 'Hover Border Color',
       'Stroke color of the hovered node\'s border. 6-digit hex, e.g. "#000000".');
 
+    // Everything here is read at draw time, so every field is a repaint — the
+    // placement is recomputed on each redraw anyway ([D Render.6]).
+    addGroup('Labels');
+    addNumberField('style.labelMinZoom', 'Label Min Zoom', 0.25,
+      'Labels are drawn only once zoom reaches this multiple of the fit-to-view zoom level. Above it, which labels appear is decided by room: the most important nodes first, each label only if it does not overlap one already placed.');
+    addNumberField('style.labelMaxCount', 'Label Max Count', 10,
+      'Most labels drawn at once, whatever room there is. 0 hides them.');
+    addNumberField('style.labelFontSize', 'Label Font Size', 1,
+      'Label text size in screen pixels — fixed, it does not scale with zoom.');
+    addNumberField('style.labelPadding', 'Label Padding', 1,
+      'Clear space kept around each label, in screen pixels. Larger means fewer, better-separated labels.');
+    addColorField('style.labelColor', 'Label Color',
+      'Text color of labels. 6-digit hex, e.g. "#000000".');
+    addSelectField('style.labelFontWeight', 'Label Weight',
+      'Font weight of labels.', ['normal', 'bold']);
+    addSelectField('style.labelPosition', 'Label Position',
+      'Which side of its node a label sits on: right, left, or centred above (top) or below (bottom).',
+      ['right', 'left', 'top', 'bottom']);
+    addColorField('style.labelHaloColor', 'Label Halo Color',
+      'RGB triplet for the outline drawn under label text so it stays readable over edges, e.g. "255,255,255".', 'rgb');
+    addNumberField('style.labelHaloAlpha', 'Label Halo Alpha', 0.05,
+      'Opacity of the halo: 1 blanks out the edges under each label, lower lets them show through.');
+    addNumberField('style.labelHaloWidth', 'Label Halo Width', 0.5,
+      'How far the halo extends around the letters, in screen pixels. 0 removes it.');
+    addNumberField('style.globeLabelMinDepth', 'Globe Label Depth', 0.05,
+      'On the globe, labels only for nodes this far towards the viewer: 0 is the rim, 1 the point facing you. Keeps names off the foreshortened edge of the sphere.');
+
     addGroup('Animation');
     addNumberField('style.perimeterWidth', 'Perimeter Width', 1,
       'Stroke width of the boundary circle.');
@@ -4250,8 +5157,14 @@
       'Perimeter opacity once the layout has converged.');
     addNumberField('style.settledTransitionDuration', 'Settle Pulse Ms', 50,
       'Duration of the fade between running and settled/idle states, in ms.');
-    addColorField('style.outsideColor', 'Outside Color',
-      'Tint outside the boundary circle, shown only around a convergence event. 6-digit hex, e.g. "#f5f5fa".');
+    addColorField('style.backgroundColor', 'Area Background',
+      'Fill of the disk while the layout is not settled — loaded, running or paused. 6-digit hex, e.g. "#ffffff".');
+    addColorField('style.outsideBackgroundColor', 'Outside Background',
+      'Fill outside the boundary circle while the layout is not settled. 6-digit hex, e.g. "#ffffff".');
+    addColorField('style.settledBackgroundColor', 'Settled Area Background',
+      'Fill of the disk once the layout has converged, in every view — eased in and out from Area Background. 6-digit hex, e.g. "#ffffff".');
+    addColorField('style.outsideColor', 'Settled Outside Background',
+      'Fill outside the boundary circle once the layout has converged — eased in and out from Outside Background. 6-digit hex, e.g. "#f8f8fe".');
 
     // Last, because it tunes one view rather than the layout every view
     // shares — the groups above are read while a run is being shaped, this
@@ -4262,11 +5175,17 @@
     addGroup('Proximity');
     // The radius goes first: it is the one field here that changes *what the
     // reading says* rather than how it looks, and the only one that costs a
-    // recompute rather than a repaint.
+    // recompute rather than a repaint. How it is chosen, then the density
+    // 'auto' aims at, then the two absolute radii 'fixed' uses.
+    addSelectField('proximityRadius', 'Radius Mode',
+      'auto: the radius follows the graph\'s density, so each node has about "Neighbors" others within it at any node count. fixed: the absolute radii below. Applied immediately.',
+      ['auto', 'fixed']);
+    addNumberField('proximityNeighbors', 'Neighbors', 1,
+      'Radius Mode auto: the average number of nodes within a node\'s radius, were the nodes spread evenly, from 400 nodes up; smaller graphs ask for proportionally fewer (by √n), so they are not drawn as a mesh. 16 matches the 2D radius 0.2 at 400 nodes. Applied immediately.');
     addNumberField('proximityMaxDistance', 'Radius 2D', 0.05,
-      'Two nodes are joined when they lie within this of each other, in world units — the flat layout is a disk of radius 1, so 0.2 is a tenth of its diameter. A node with nothing inside its radius is drawn with no edges at all, which is what makes an outlier read as one. Applied immediately: the reading is rebuilt on the spot.');
+      'Radius Mode fixed. Two nodes are joined when they lie within this of each other, in world units — the flat layout is a disk of radius 1, so 0.2 is a tenth of its diameter. A node with nothing inside its radius is drawn with no edges at all, which is what makes an outlier read as one. Applied immediately: the reading is rebuilt on the spot.');
     addNumberField('globeProximityMaxDistance', 'Radius 3D', 0.05,
-      'The same radius on the globe, measured along the surface. Separate because the sphere has four times the disk\'s area, so nodes sit twice as far apart on it and the flat value finds nothing — the default is the 2D one doubled, which is the same distance in the other geometry\'s units.');
+      'Radius Mode fixed. The same radius on the globe, measured along the surface. Separate because the sphere has four times the disk\'s area, so nodes sit twice as far apart on it and the flat value finds nothing — the default is the 2D one doubled, which is the same distance in the other geometry\'s units.');
     addColorField('style.proximityEdgeColor', 'Proximity Color',
       'RGB triplet for proximity edges, e.g. "0,140,120". Deliberately not the positive-edge blue: a proximity edge is a different claim.', 'rgb');
     addNumberField('style.proximityEdgeAlpha', 'Proximity Alpha', 0.05,
@@ -4294,6 +5213,83 @@
     addNumberField('style.globeGraticuleAlpha', 'Graticule Alpha', 0.02,
       'Opacity of the grid before the depth fade. The same fade the graph gets is applied on top, so the far half comes out at this times the far slab\'s multiplier (about 0.19 at the default Depth Min Alpha) — raise this to bring the back of the grid up.');
     addColorField('style.globeGraticuleColor', 'Graticule Color', 'RGB triplet for the grid, e.g. "150,150,180". A pale tint of the chrome\'s ink, deliberately outside the edge palette and deliberately fainter than anything the graph draws: the grid is scaffolding, and a line in the palette\'s blues or reds — or at full ink — reads as a relation. Darken it to make the grid assert itself.', 'rgb');
+
+    // Last: a theme is a starting point for the colour fields above, not a
+    // field of its own. Pick, then Apply — a dropdown that applied on change
+    // would repaint the graph while the list is being browsed with the
+    // keyboard. Applying goes through the same onChange as every field, so
+    // the fields above show the theme's values straight after.
+    addGroup('Themes');
+    var themeRow = addRow();
+    addLabel(themeRow, 'Theme', 'A set of colours for the graph — background, perimeter, nodes, labels, edges, the globe\'s grid. Only colours change; sizes and physics stay as they are. Edit any colour afterwards as usual.');
+    var themeSelect = document.createElement('select');
+    themeSelect.className = 'nodino-theme-select';
+    themeSelect.setAttribute('aria-label', 'Theme');
+    Object.keys(THEMES).forEach(function (name) {
+      var option = document.createElement('option');
+      option.value = name;
+      option.textContent = THEMES[name].label;
+      themeSelect.appendChild(option);
+    });
+    themeSelect.value = config.theme;
+    themeRow.appendChild(themeSelect);
+    // Shows the last theme applied, re-read like every field; it does not
+    // apply on change — Apply does.
+    bindField(themeSelect, 'theme', 'choice');
+    var applyRow = addRow();
+    var applyButton = createButton();
+    applyButton.className = 'nodino-panel-button';
+    applyButton.textContent = 'Apply Theme';
+    applyButton.addEventListener('click', function () {
+      onChange({ theme: themeSelect.value });
+    });
+    applyRow.appendChild(applyButton);
+
+    // Copy Config ([D Config.9]), at the foot of the panel rather than in a
+    // group: it covers every group at once. What is copied is the config as a
+    // patch onto the defaults (configPatchFromDefaults), ready to paste as
+    // create()'s config, updateConfig()'s argument or load()'s config. The
+    // clipboard needs a secure context (https or localhost) and can be
+    // refused; then — or with no clipboard at all — the JSON is shown in a
+    // read-only box under the button, selected, to copy by hand.
+    currentGroup = el;
+    var copyRow = addRow();
+    var copyButton = createButton();
+    copyButton.className = 'nodino-panel-button';
+    copyButton.textContent = 'Copy Config (JSON)';
+    copyButton.title = 'Copies the current config as JSON — only the fields that differ from the defaults — ready to pass as create()\'s config, to updateConfig() or as load()\'s config.';
+    copyRow.appendChild(copyButton);
+    var copyStatus = document.createElement('div');
+    copyStatus.className = 'nodino-copy-status';
+    copyStatus.setAttribute('role', 'status');
+    el.appendChild(copyStatus);
+    var copyBox = null;
+    copyButton.addEventListener('click', function () {
+      var json = JSON.stringify(configPatchFromDefaults(config), null, 2);
+      var showBox = function () {
+        if (!copyBox) {
+          copyBox = document.createElement('textarea');
+          copyBox.className = 'nodino-config-json';
+          copyBox.readOnly = true;
+          copyBox.setAttribute('aria-label', 'Config JSON');
+          el.appendChild(copyBox);
+        }
+        copyBox.value = json;
+        if (copyBox.focus) copyBox.focus();
+        if (copyBox.select) copyBox.select();
+        copyStatus.textContent = 'Copy the JSON below.';
+      };
+      var clipboard = typeof navigator !== 'undefined' && navigator.clipboard;
+      if (clipboard && typeof clipboard.writeText === 'function') {
+        clipboard.writeText(json).then(function () {
+          // A box shown earlier would now hold stale JSON beside a fresh copy.
+          if (copyBox) copyBox.value = json;
+          copyStatus.textContent = 'Copied to the clipboard.';
+        }, showBox);
+      } else {
+        showBox();
+      }
+    });
 
     function setRunning(running) {
       for (var i = 0; i < coldInputs.length; i++) {
@@ -4325,11 +5321,11 @@
   // an error — a host with nothing cached should be able to leave the field
   // off, and a stored value that got mangled in transit should degrade to
   // that same case instead of poisoning every later comparison.
-  function readMaxFrames(data) {
+  function readMaxFrames(data, warn) {
     var value = data && data.maxFrames;
     if (value === undefined || value === null) return 0;
     if (typeof value !== 'number' || !isFinite(value) || value < 0) {
-      console.warn('[Nodino] Ignoring invalid data.maxFrames:', value);
+      warn('[Nodino] Ignoring invalid data.maxFrames:', value);
       return 0;
     }
     return Math.floor(value);
@@ -4464,7 +5460,16 @@
    *                          body: HTMLElement) => any,
    *             onSettle?: (result: NodinoResult) => void,
    *             onPause?: (result: NodinoResult) => void,
+   *             nodeLabel?: (uid: string, m: object|null) => string|null,
+   *             nodePriority?: (uid: string, m: object|null) => number,
    *             config?: object }} NodinoLoadOptions - second argument to load()
+   *
+   *   `nodeLabel` gives the text drawn beside a node on the canvas once zoomed
+   *   in ([D Render.6]); null or '' draws none for that node. Omitted, the
+   *   label is the uid. `nodePriority` ranks nodes for the room the labels
+   *   compete for, higher first; omitted, the rank is the node's strength —
+   *   the sum of its positive input weights. Both are called once per node
+   *   per (re)build, never per frame.
    *
    *   `onPause` fires on every pause, with the same payload shape as
    *   `onSettle` and `reason: 'paused'` — a suspended layout is worth exactly
@@ -4515,8 +5520,13 @@
    */
   function create(container, options) {
     options = options || {};
-    var config = deepMerge(cloneDefaultConfig(), options.config);
+    var config = cloneDefaultConfig();
     var log = createLogger(config);
+    var warn = createWarner(config);
+    mergeConfigPatch(config, options.config, warn);
+    // Unconditional, and the only line that is: whatever logging says, a
+    // console that has Nodino in it says which version ([D Config.7]).
+    console.info('[Nodino] v' + VERSION + ' started');
 
     // Read the *computed* position (container.style only reflects inline styles,
     // missing a position already set via an external/embedded stylesheet — e.g.
@@ -4536,6 +5546,20 @@
     }
     container.style.overflow = 'hidden';
 
+    // The theme's chrome colours ([D Config.8]): nodino.css keys them off a
+    // `nodino-theme-<name>` class, set here on the container so every menu
+    // inside inherits them. Swapped whenever config.theme changes, removed
+    // on destroy() like the other things create() borrows from the container.
+    var themeClass = null;
+    function syncThemeClass() {
+      var next = 'nodino-theme-' + config.theme;
+      if (next === themeClass) return;
+      if (themeClass) container.classList.remove(themeClass);
+      container.classList.add(next);
+      themeClass = next;
+    }
+    syncThemeClass();
+
     var canvas = document.createElement('canvas');
     canvas.style.cssText = 'display:block;width:100%;height:100%;';
     container.appendChild(canvas);
@@ -4544,13 +5568,17 @@
     // re-applied without the host handing the data over again. create() never carries data itself — the graph starts empty and
     // is populated exclusively through load().
     var world = {
-      state: buildGraphState({}, [], {}, config.maxEdgesPerNode),
+      state: buildGraphState({}, [], {}, config.maxEdgesPerNode, undefined, warn),
       perimeterRadius: 0,
       rawData: { nodes: {}, edges: [] },
       // The 'proximity'/'clusters' readings ([D View.5], [D View.6]), each
       // computed on entering the view that needs it and held until the
       // positions it describes can change. null = nothing computed.
-      view: null
+      view: null,
+      // Each node's label text and the order nodes compete for room in
+      // ([D Render.6]), resolved once per (re)build by computeLabels().
+      // null until the first build.
+      labels: null
     };
     var worldRadius = layoutInitial(world.state);
     layoutInitialGlobe(world.state);
@@ -4582,8 +5610,8 @@
     // follows the cursor and the one a click pins ([F Interact.3]). Built once
     // each rather than one card changing hands, because both can be on screen
     // at the same time — hovering is what a pin is moved *with*.
-    var hoverPanel = createDetailPanel(container, false);
-    var pinPanel = createDetailPanel(container, true);
+    var hoverPanel = createDetailPanel(container, false, warn);
+    var pinPanel = createDetailPanel(container, true, warn);
     // Every optional chrome component starts null and is built by
     // applyChrome() below, which is also what updateConfig() calls — so the
     // show* flags behave identically whether they arrive at create() or long
@@ -4593,6 +5621,7 @@
     var debugPanel = null;
     var viewModeToggle = null;
     var geometryToggle = null;
+    var labelsToggle = null;
     var searchBar = null;
     var debugToggle = null;
     var simControls = null;
@@ -4649,6 +5678,13 @@
     // cacheable as a converged one, and what to do with it is a question
     // about this dataset.
     var pauseHandler = null;
+
+    // The two label handlers ([D Render.6]), bound per dataset for the same
+    // reason as the card handlers: what a node is called, and which nodes
+    // matter most, are questions about this data's metadata. Null means the
+    // defaults — the uid, ranked by node strength.
+    var labelHandler = null;
+    var priorityHandler = null;
 
     // --- Lifecycle state machine ([F State.1]) ---------------------------
     // The single source of truth for "what is this instance doing". Every
@@ -4761,6 +5797,9 @@
         // 'relations', on an empty graph, and whenever the reading it needs is
         // already cached.
         ensureView();
+        // Labels appear only on a still layout ([D Render.6]), and a run
+        // that has just stopped moving asks for no redraw of its own.
+        needsRedraw = true;
       }
       if (debugPanel) debugPanel.setRunning(isRunningState());
       if (simControls) simControls.sync(state);
@@ -4784,7 +5823,7 @@
     }
 
     function refuse(action) {
-      console.warn('[Nodino] ' + action + '() ignored: not allowed in state "' + state + '".');
+      warn('[Nodino] ' + action + '() ignored: not allowed in state "' + state + '".');
       return false;
     }
 
@@ -4804,6 +5843,11 @@
     var destroyed = false;
     var needsRedraw = true;
     var hoveredNid = -1;
+    // Whether the hovered node's card and highlight are showing — false when
+    // the host prevented them ([F API.13]). The hover itself is still
+    // tracked then: without it every mousemove over the same node would read
+    // as a new hover and re-fire the event at cursor rate.
+    var hoverShown = false;
     // The pinned node, or -1 ([F Interact.3]). One at a time, and independent
     // of `hoveredNid`: hovering carries on while a pin holds, because moving
     // the pin from one node to another begins by looking at the other one.
@@ -4817,13 +5861,54 @@
       return { uid: world.state.uids[nid], m: world.state.metadata[nid] };
     }
 
-    function onHover(nid, clientX, clientY) {
+    // Host events ([F API.13]): onNodeClick, onHoverChange, onPinChange —
+    // instance-level, passed to create(). Each
+    // fires *before* Nodino acts, with a DOM-like event: preventDefault()
+    // on a cancelable one skips Nodino's own reaction (the pin, the card),
+    // which is what lets a host substitute its own. `source` says what
+    // caused it, since a host often wants to react to the user and not to
+    // its own pin() call echoing back. Returns whether the default should
+    // run. A throwing handler is the host's bug and does not cancel
+    // anything: it is warned about and contained, like onSettle's.
+    function emit(name, type, nid, previousNid, source, originalEvent, cancelable) {
+      var handler = options[name];
+      if (typeof handler !== 'function') return true;
+      var prevented = false;
+      var event = {
+        type: type,
+        uid: nid < 0 ? null : world.state.uids[nid],
+        m: nid < 0 ? null : world.state.metadata[nid],
+        source: source,
+        originalEvent: originalEvent || null,
+        cancelable: cancelable,
+        defaultPrevented: false,
+        // A closure rather than `this`, so a host that destructures the
+        // event or passes the method along still reaches it.
+        preventDefault: function () {
+          if (!cancelable) return;
+          prevented = true;
+          event.defaultPrevented = true;
+        }
+      };
+      if (previousNid !== undefined) event.previous = previousNid < 0 ? null : world.state.uids[previousNid];
+      // Hover is not traced, for the reason the canvas hover never was
+      // ([D Config.7]): it fires per node the cursor crosses.
+      if (type !== 'hoverchange') log('cb', name, { uid: event.uid, source: source });
+      try {
+        handler(event);
+      } catch (err) {
+        warn('[Nodino] ' + name + ' threw', err);
+      }
+      return !prevented;
+    }
+
+    function onHover(nid, clientX, clientY, source, originalEvent) {
       // The pinned node is exempt: it already has a card of its own, anchored
       // to it and holding exactly this content, so a second one under the
       // cursor would be the same node twice — and would re-run the host's
       // handler to say it ([D API.4]).
       if (nid === pinnedNid) {
-        clearHover();
+        clearHover(source, originalEvent);
         return;
       }
       // Repositioned on every mousemove, but repopulated only when the node
@@ -4834,12 +5919,21 @@
       // (losing its listeners) only to rebuild it — flickering the host's own
       // loading placeholder back on every pixel of movement.
       if (nid === hoveredNid) {
-        hoverPanel.moveTo(clientX, clientY);
+        if (hoverShown) hoverPanel.moveTo(clientX, clientY);
         return;
       }
+      var previous = hoveredNid;
       hoveredNid = nid;
-      renderer.setHighlighted(nid);
+      hoverShown = emit('onHoverChange', 'hoverchange', nid, previous, source, originalEvent, true);
       needsRedraw = true;
+      if (!hoverShown) {
+        // Prevented: no card and no highlight for this node — and none left
+        // over from the previous one, which this hover replaced.
+        renderer.setHighlighted(-1);
+        hoverPanel.hide();
+        return;
+      }
+      renderer.setHighlighted(nid);
       // Shown whether or not a handler was supplied: the uid title is the
       // panel's default content, and the handler only adds to it.
       hoverPanel.show(nodeAt(nid), clientX, clientY, hoverHandler);
@@ -4847,43 +5941,58 @@
 
     // Ends the hover and nothing else — a pin is not a hover that lasted
     // longer, and every caller here means one or the other.
-    function clearHover() {
-      if (hoveredNid !== -1) {
-        hoveredNid = -1;
-        renderer.setHighlighted(-1);
-        needsRedraw = true;
-      }
+    // Not cancelable: what it would cancel is taking down a card, and a card
+    // left standing over a node nobody is pointing at is the one thing the
+    // hover card must never be.
+    function clearHover(source, originalEvent) {
       hoverPanel.hide();
-    }
-
-    function onHoverEnd() {
-      clearHover();
+      if (hoveredNid === -1) return;
+      var previous = hoveredNid;
+      hoveredNid = -1;
+      hoverShown = false;
+      renderer.setHighlighted(-1);
+      needsRedraw = true;
+      emit('onHoverChange', 'hoverchange', -1, previous, source, originalEvent, false);
     }
 
     // Pins a node's card ([F Interact.3]). The same call moves the pin from
     // one node to another, since nothing about the outgoing pin outlives it:
     // show() clears the body and re-runs the pin handler for the new node,
     // exactly as a change of hovered node does for the other card ([D API.4]).
-    function pin(nid, clientX, clientY) {
+    // Returns whether the node is now pinned — false only when the host
+    // prevented the change ([F API.13]). Re-pinning the node already pinned
+    // is not a change: no event, and the card is simply re-shown.
+    function pin(nid, clientX, clientY, source, originalEvent) {
+      if (nid !== pinnedNid &&
+          !emit('onPinChange', 'pinchange', nid, pinnedNid, source, originalEvent, true)) {
+        return false;
+      }
       pinnedNid = nid;
       pinnedX = -1; pinnedY = -1;
       renderer.setPinned(nid);
       // The hover that led here is over: the card under the cursor and the one
       // about to be pinned are the same node, and the hovering one would sit
       // duplicated on top of it. Hovering resumes on the next node.
-      clearHover();
+      clearHover(source, originalEvent);
       needsRedraw = true;
       // Placed at the cursor for this one call and at its node from the next
       // drawn frame on — the two are within a hit radius of each other, so
       // the handover is not visible, and going through show() keeps the
       // measure-then-place ordering async content depends on ([D API.6a]).
       pinPanel.show(nodeAt(nid), clientX, clientY, pinHandler);
+      return true;
     }
 
-    // Returns whether there was a pin to release, so callers that only want
-    // to act when there was one (Esc) do not have to ask twice.
-    function unpin() {
+    // Returns whether a pin was released, so callers that only want to act
+    // when one was (Esc) do not have to ask twice. False too when the host
+    // prevented the release; a replay's release is not cancelable, the index
+    // the pin holds being about to name a different node ([F Data.2]).
+    function unpin(source, originalEvent) {
       if (pinnedNid === -1) return false;
+      if (!emit('onPinChange', 'pinchange', -1, pinnedNid, source, originalEvent,
+                source !== 'reload' && source !== 'update')) {
+        return false;
+      }
       pinnedNid = -1;
       renderer.setPinned(-1);
       needsRedraw = true;
@@ -4894,13 +6003,17 @@
     // One click, three outcomes, and which one applies is decided entirely by
     // what was under the cursor ([D Interact.5]): the background releases,
     // the pinned node itself toggles off, any other node takes the pin.
-    function onClick(nid, clientX, clientY) {
+    //
+    // A node click is offered to the host first ([F API.13]), and its pin is
+    // the default the host can prevent. Background clicks are not node
+    // events; their release reaches the host as a pin change.
+    function onClick(nid, clientX, clientY, originalEvent) {
+      if (nid >= 0 && !emit('onNodeClick', 'click', nid, undefined, 'pointer', originalEvent, true)) return;
       if (nid < 0 || nid === pinnedNid) {
-        if (unpin()) log('ui', 'node unpinned');
+        if (unpin('pointer', originalEvent)) log('ui', 'node unpinned');
         return;
       }
-      log('ui', 'node pinned', world.state.uids[nid]);
-      pin(nid, clientX, clientY);
+      if (pin(nid, clientX, clientY, 'pointer', originalEvent)) log('ui', 'node pinned', world.state.uids[nid]);
     }
 
     // Pinning a node named from outside ([F API.10]) — the public pin(), and
@@ -4928,17 +6041,30 @@
     // uid set holds ([F Data.2]): a host that keyed its nodes with numbers
     // gets the node it meant rather than a warning about a uid it can see in
     // its own data.
-    function pinByUid(uid) {
+    function pinByUid(uid, source) {
       var nid = world.state.uidToNid.get(String(uid));
       if (nid === undefined) {
-        console.warn('Nodino: pin(): no node with uid', uid);
+        warn('Nodino: pin(): no node with uid', uid);
         return false;
       }
       var pos = renderer.nodeScreenPos(nid);
       if (!pos) return false;
       var rect = canvas.getBoundingClientRect();
-      pin(nid, rect.left + pos[0], rect.top + pos[1]);
-      return true;
+      return pin(nid, rect.left + pos[0], rect.top + pos[1], source, null);
+    }
+
+    // A search pick on the globe that lands on the far hemisphere turns the
+    // globe to bring the node round ([D Globe.12]). The pick only: rows the
+    // cursor merely passes over must not move the view ([D API.12]), and
+    // pin(uid) from host code stays camera-neutral unless it asks for the
+    // turn with { autoRotate: true }.
+    function revealOnGlobe(uid) {
+      var nid = world.state.uidToNid.get(String(uid));
+      if (nid === undefined) return;
+      if (renderer.focusOnGlobe(nid, performance.now())) {
+        log('auto', 'globe turned to', uid);
+        needsRedraw = true;
+      }
     }
 
     // The other half of the pair ([F API.11]): hovering a node named from
@@ -4953,25 +6079,25 @@
     // host's handler ([D API.4]), and the pinned node shows nothing further,
     // having a card of its own already. `true` therefore means "hovering that
     // node is what happened", which for the pinned node is nothing.
-    function hoverByUid(uid) {
+    function hoverByUid(uid, source) {
       var nid = world.state.uidToNid.get(String(uid));
       if (nid === undefined) {
-        console.warn('Nodino: hover(): no node with uid', uid);
+        warn('Nodino: hover(): no node with uid', uid);
         return false;
       }
       var pos = renderer.nodeScreenPos(nid);
       if (!pos) return false;
       var rect = canvas.getBoundingClientRect();
-      onHover(nid, rect.left + pos[0], rect.top + pos[1]);
+      onHover(nid, rect.left + pos[0], rect.top + pos[1], source, null);
       return true;
     }
 
     // Ends a hover from outside. Returns whether there was one, mirroring
     // unpin(), so a caller that only wants to act when something was showing
     // does not have to ask twice.
-    function endHover() {
+    function endHover(source) {
       if (hoveredNid === -1) return false;
-      clearHover();
+      clearHover(source, null);
       return true;
     }
 
@@ -5005,15 +6131,15 @@
     // host's business, and this has no claim on the key.
     function onKeyDown(e) {
       if (e.key !== 'Escape') return;
-      if (unpin()) log('ui', 'node unpinned (Esc)');
+      if (unpin('keyboard', e)) log('ui', 'node unpinned (Esc)');
     }
     document.addEventListener('keydown', onKeyDown);
 
     function onViewChange() { needsRedraw = true; }
 
     var interaction = attachInteraction(canvas, renderer, grid, grid3, world, {
-      onHover: onHover,
-      onHoverEnd: onHoverEnd,
+      onHover: function (nid, x, y, e) { onHover(nid, x, y, 'pointer', e); },
+      onHoverEnd: function (e) { clearHover('pointer', e); },
       onClick: onClick,
       onViewChange: onViewChange
     });
@@ -5081,6 +6207,9 @@
       viewModeToggle = syncComponent(config.showViewModeToggle, viewModeToggle, function () {
         return createViewModeToggle(viewRow, config, fromControlsConfig('view mode'), isStoppedState());
       });
+      labelsToggle = syncComponent(config.showLabelsToggle, labelsToggle, function () {
+        return createLabelsToggle(viewRow, config, fromControlsConfig('labels'));
+      });
       // Reads the uid list through a getter rather than being handed the
       // array: world.state is replaced outright on every rebuild ([D API.1]),
       // and a bar holding the old one would go on offering nodes that are no
@@ -5094,11 +6223,12 @@
       searchBar = syncComponent(config.showSearch, searchBar, function () {
         return createSearchBar(viewRow, {
           getUids: function () { return world.state.uids; },
-          onHover: hoverByUid,
-          onHoverEnd: endHover,
+          getMaxResults: function () { return searchCap(config.searchMaxResults); },
+          onHover: function (uid) { hoverByUid(uid, 'search'); },
+          onHoverEnd: function () { endHover('search'); },
           onPick: function (uid) {
             log('ui', 'search pick', uid);
-            pinByUid(uid);
+            if (pinByUid(uid, 'search')) revealOnGlobe(uid);
           }
         });
       });
@@ -5194,6 +6324,12 @@
     // record onSettle compares against, and baseFrameCount above — and
     // reading it twice would also double the warning an invalid value earns.
     var dataMaxFrames = 0;
+    // data.settled as it arrived ([D Data.3]): whether a complete positions
+    // set is a finished layout (true, and the default) or one saved mid-run
+    // (false), which reopens paused instead of settled. Only an explicit
+    // `false` counts, so every payload written before the field existed
+    // keeps opening as it always did.
+    var dataSettled = true;
     // Steps performed since the current layout was (re)built — what the
     // convergence cap spends and the progress bar draws. Split from
     // frameCount so that the cap stays a budget for *this* run: a graph
@@ -5281,7 +6417,7 @@
       try {
         settleHandler(payload);
       } catch (err) {
-        console.warn('[Nodino] onSettle threw', err);
+        warn('[Nodino] onSettle threw', err);
       }
     }
 
@@ -5313,7 +6449,7 @@
       try {
         pauseHandler(payload);
       } catch (err) {
-        console.warn('[Nodino] onPause threw', err);
+        warn('[Nodino] onPause threw', err);
       }
     }
 
@@ -5452,7 +6588,7 @@
     // the loop.
     var drawStatus = {
       settled: false, settledAt: -1, unsettledAt: -1,
-      hasStarted: false, runElapsedMs: 0
+      hasStarted: false, runElapsedMs: 0, stopped: false
     };
 
     function frame() {
@@ -5463,10 +6599,14 @@
       // and, worse, make the step count depend on how the two interleave.
       if (!backgroundTicker) {
         tick();
+        // Cosmetic and camera-only ([Rsk Render.1]): the turn reads real
+        // time, and never touches positions, so it cannot reach [F Det.1].
+        if (renderer.stepCameraAnimation(performance.now())) needsRedraw = true;
         if (needsRedraw) {
           drawStatus.settledAt = settledAt;
           drawStatus.unsettledAt = unsettledAt;
           drawStatus.hasStarted = hasStartedState();
+          drawStatus.stopped = isStoppedState();
           drawStatus.runElapsedMs = runElapsedMs;
           renderer.draw(drawStatus);
           needsRedraw = false;
@@ -5529,12 +6669,43 @@
     // reason to want the run again. rebase(), not fitView() — the reference
     // zoom still has to follow the world's extent, the view does not.
     function restart() {
+      resetLayout(null);
+      // A pin is released here rather than followed through the replay: it
+      // points at a node by index, and the internal rebuild this also serves
+      // can hand those indices to a different node set entirely ([F Data.2]).
+      // The hover goes with it, for the same reason.
+      clearHover('reload', null);
+      unpin('reload', null);
+      needsRedraw = true;
+    }
+
+    // Everything restart() does to the layout and its counters, without the
+    // release of pin and hover — update() keeps those, remapped by uid
+    // ([F API.14]). `place`, when given, runs after the initial layout and
+    // before the grids are built from it: update() uses it to put carried
+    // nodes back where they were and new ones beside their neighbours.
+    //
+    // A carried layout keeps the engines' annealing. reset() would send
+    // epsilon back to epsilonStart, a tenth of where a run has climbed to, and
+    // the first ~40 steps after an edit would then move a tenth as far — below
+    // stopVelocity for exactly stopFrames steps, so the engine declared
+    // convergence on step 41 and froze mid-motion. On the plane, where a
+    // layout already near rest has little else moving, that was a hard stop
+    // with the globe still running. Only the convergence latch is cleared,
+    // as Force does ([D State.2]).
+    function resetLayout(place) {
       var radius = layoutInitial(world.state);
       layoutInitialGlobe(world.state);
+      if (place) place();
       world.perimeterRadius = radius;
       renderer.rebase(radius);
-      engine.reset();
-      globeEngine.reset();
+      if (place) {
+        engine.forceUnsettle();
+        globeEngine.forceUnsettle();
+      } else {
+        engine.reset();
+        globeEngine.reset();
+      }
       // A fresh layout gets a fresh convergence-deadline budget: runFrameCount
       // starts the replayed run at step one, so the cap and the progress bar
       // are about to measure this run and nothing else.
@@ -5562,13 +6733,6 @@
       world.view = null;
       syncGridCell();
       buildGrids();
-      // A pin is released here rather than followed through the replay: it
-      // points at a node by index, and the internal rebuild this also serves
-      // can hand those indices to a different node set entirely ([F Data.2]).
-      // The hover goes with it, for the same reason.
-      clearHover();
-      unpin();
-      needsRedraw = true;
     }
 
     // Rebuilds the graph state from raw input and replays the initial layout —
@@ -5578,9 +6742,15 @@
     function rebuildState(data) {
       data = data || {};
       world.rawData = data;
+      // Released before the swap rather than by restart() below: the events
+      // they fire name the outgoing nodes ([F API.13]), and only the outgoing
+      // state still knows their uids — after the swap the same index names a
+      // different node, or none. restart() then finds nothing left to release.
+      clearHover('reload', null);
+      unpin('reload', null);
       world.state = buildGraphState(
         data.nodes, data.edges, data.positions, config.maxEdgesPerNode,
-        data.globePositions
+        data.globePositions, warn
       );
       // What the layout this graph starts from already cost, and therefore
       // where frameCount begins and returns to. Resolved here rather than in
@@ -5599,6 +6769,10 @@
       // trustworthy without re-checking it, and re-hashing an unchanged set
       // costs one pass over a string, not worth branching around).
       graphHash = null;
+      // Rebuilt with the graph, not with the dataset: the internal
+      // maxEdgesPerNode rebuild hands out the same nids, but the arrays here
+      // belong to the state object being replaced.
+      world.labels = computeLabels(world.state, labelHandler, priorityHandler, warn);
       restart();
       syncStatsReadout();
       // Same reason, one level up: the query in the search box was asked of
@@ -5654,11 +6828,14 @@
       // sphere puts different pairs within the radius — so the cache belongs
       // to one geometry at a time and switching drops it ([D Globe.6]).
       if (!view.proximity) {
-        view.proximity = config.geometry === 'globe'
-          ? computeProximityGlobe(world.state, config.globeProximityMaxDistance)
-          : computeProximity(world.state, config.proximityMaxDistance);
+        var globe = config.geometry === 'globe';
+        var radius = proximityRadiusFor(config, world.state.count, globe);
+        view.proximity = globe
+          ? computeProximityGlobe(world.state, radius)
+          : computeProximity(world.state, radius);
         log('auto', 'proximity computed', {
           geometry: config.geometry,
+          radius: radius,
           nodes: world.state.count, edges: view.proximity.count
         });
       }
@@ -5682,7 +6859,8 @@
     // of no nodes.
     function stateAfterRebuild() {
       if (world.state.count === 0) return 'empty';
-      return isCompleteLayout(world.state) ? 'settled' : 'loaded';
+      if (!isCompleteLayout(world.state)) return 'loaded';
+      return dataSettled ? 'settled' : 'running_paused';
     }
 
     // Bookkeeping for landing in 'settled' without having run: the engine is
@@ -5731,6 +6909,9 @@
     //   onNodePin   - the same for the card a click pins ([D API.11]), the one
     //                 that can hold controls because it takes the mouse.
     //                 Defaults to onNodeHover.
+    //   nodeLabel   - the text a node is labelled with on the canvas, and
+    //   nodePriority  which nodes win the room labels compete for
+    //                 ([D Render.6]).
     //   onSettle    - what to do with a converged layout of *this* graph,
     //                 whose companion input (data.maxFrames) travels with the
     //                 data in the same call.
@@ -5745,6 +6926,320 @@
     // semantics as updateConfig().
     // Named loadOptions, not options: `options` is create()'s argument and is
     // still in scope here, so reusing the name would shadow it silently.
+    // -----------------------------------------------------------------
+    // Dynamic datasets ([F API.14]): update(patch) adds and removes nodes and
+    // edges on the graph already loaded, as one rebuild per call.
+    // -----------------------------------------------------------------
+
+    // Undirected: a->b and b->a are one edge. NUL cannot appear in a uid
+    // that came through JSON as a sensible identifier, and even if it did
+    // the worst case is two pairs sharing a key, never a crash.
+    function edgeKey(a, b) {
+      return a < b ? a + '\u0000' + b : b + '\u0000' + a;
+    }
+
+    // The dataset update() edits. Made on the first update() from whatever
+    // load() was handed, and Nodino's own from then on: load() keeps the
+    // host's object by reference ([Rsk 2]), and editing that would be
+    // writing into the host's data. Duplicate edges collapse here (last one
+    // wins), edges' implicit nodes become explicit, and the bootstrap
+    // positions survive, so restart() still replays from the same seed.
+    var ownData = null;
+
+    function ensureOwnData() {
+      if (ownData && world.rawData === ownData.built) return ownData;
+      var raw = world.rawData || {};
+      var nodes = {};
+      if (isPlainObject(raw.nodes)) {
+        Object.keys(raw.nodes).forEach(function (uid) { nodes[String(uid)] = raw.nodes[uid]; });
+      }
+      var edges = new Map();
+      var list = Array.isArray(raw.edges) ? raw.edges : [];
+      for (var i = 0; i < list.length; i++) {
+        var edge = sanitizeEdge(list[i]);
+        if (!edge) continue;
+        if (!nodes[edge[0]]) nodes[edge[0]] = {};
+        if (!nodes[edge[1]]) nodes[edge[1]] = {};
+        edges.set(edgeKey(edge[0], edge[1]), edge);
+      }
+      ownData = {
+        nodes: nodes,
+        edges: edges,
+        positions: isPlainObject(raw.positions) ? Object.assign({}, raw.positions) : {},
+        globePositions: isPlainObject(raw.globePositions) ? Object.assign({}, raw.globePositions) : {},
+        built: null
+      };
+      return ownData;
+    }
+
+    // The same rules buildGraphState() applies on the way in, so an edge
+    // update() accepts is one load() would have accepted too.
+    function sanitizeEdge(entry) {
+      if (!Array.isArray(entry) || entry.length < 3) return null;
+      if (entry[0] == null || entry[1] == null) return null;
+      var a = String(entry[0]), b = String(entry[1]);
+      if (a === b) return null;
+      var w = Number(entry[2]);
+      if (!isFinite(w)) w = 0;
+      return [a, b, Math.max(-1, Math.min(1, w))];
+    }
+
+    // Applies the patch to the dataset, in a fixed order — edges out, nodes
+    // out, nodes in, edges in — so removing and re-adding a uid in one call
+    // means "replace". Returns the uids removed and added, the uids whose
+    // metadata alone was replaced, and whether the structure changed — or
+    // null when nothing changed at all, which update() takes as "do nothing".
+    function applyPatch(data, patch) {
+      var changed = false;
+      var removed = new Set();
+      var added = new Set();
+      var retagged = new Set();
+      var i;
+
+      var removeEdges = Array.isArray(patch.removeEdges) ? patch.removeEdges : [];
+      for (i = 0; i < removeEdges.length; i++) {
+        var re = removeEdges[i];
+        var key = Array.isArray(re) && re[0] != null && re[1] != null ? edgeKey(String(re[0]), String(re[1])) : null;
+        if (key && data.edges.delete(key)) changed = true;
+        else warn('[Nodino] update(): no edge', re, '— ignored.');
+      }
+
+      var removeNodes = Array.isArray(patch.removeNodes) ? patch.removeNodes : [];
+      for (i = 0; i < removeNodes.length; i++) {
+        var ru = String(removeNodes[i]);
+        if (!data.nodes[ru]) { warn('[Nodino] update(): no node "' + ru + '" to remove — ignored.'); continue; }
+        delete data.nodes[ru];
+        delete data.positions[ru];
+        delete data.globePositions[ru];
+        removed.add(ru);
+        changed = true;
+      }
+      if (removed.size > 0) {
+        data.edges.forEach(function (edge, k) {
+          if (removed.has(edge[0]) || removed.has(edge[1])) data.edges.delete(k);
+        });
+      }
+
+      // An existing uid only has its metadata replaced: it is the same node,
+      // and it stays where it is. A removed-and-re-added one is new.
+      var addNodes = isPlainObject(patch.addNodes) ? patch.addNodes : {};
+      Object.keys(addNodes).forEach(function (uid) {
+        var entry = isPlainObject(addNodes[uid]) ? addNodes[uid] : {};
+        if (!data.nodes[uid]) { added.add(uid); changed = true; } else retagged.add(uid);
+        data.nodes[uid] = entry;
+      });
+
+      // Unlike load(), an edge does not declare its endpoints: a typo in a
+      // uid would otherwise add a node nobody asked for to a live layout.
+      var addEdges = Array.isArray(patch.addEdges) ? patch.addEdges : [];
+      for (i = 0; i < addEdges.length; i++) {
+        var edge = sanitizeEdge(addEdges[i]);
+        if (!edge || !data.nodes[edge[0]] || !data.nodes[edge[1]]) {
+          warn('[Nodino] update(): edge', addEdges[i], 'names an unknown node, or is malformed — ignored.');
+          continue;
+        }
+        data.edges.set(edgeKey(edge[0], edge[1]), edge);
+        changed = true;
+      }
+
+      if (!changed && retagged.size === 0) return null;
+      return { removed: removed, added: added, retagged: retagged, structural: changed };
+    }
+
+    // Where a node added to a running layout starts ([F API.14]): the
+    // explicit position the host gave, or the mean of its positively related
+    // neighbours that were already placed, weighted by the relation — the
+    // place the attraction would pull it to first. No neighbour to go by:
+    // the centre (the front of the sphere). A small offset, deterministic in
+    // the node's index, keeps it off any neighbour it would land exactly on:
+    // two coincident nodes have no direction to repel each other along.
+    var PLACE_OFFSET = 0.01;
+
+    function placeNewNodes(st, carried, added, explicit, explicitGlobe) {
+      var n = st.count;
+      var sx = new Float64Array(n), sy = new Float64Array(n);
+      var gx = new Float64Array(n), gy = new Float64Array(n), gz = new Float64Array(n);
+      var sw = new Float64Array(n);
+      var isNew = new Uint8Array(n);
+      added.forEach(function (uid) {
+        var nid = st.uidToNid.get(uid);
+        if (nid !== undefined) isNew[nid] = 1;
+      });
+      for (var e = 0; e < st.edgeCount; e++) {
+        var w = st.edgeW[e];
+        if (!(w > 0)) continue;
+        var a = st.edgeA[e], b = st.edgeB[e];
+        var from = -1, to = -1;
+        if (isNew[a] && carried[b]) { to = a; from = b; }
+        else if (isNew[b] && carried[a]) { to = b; from = a; }
+        if (to < 0) continue;
+        sx[to] += w * st.x[from]; sy[to] += w * st.y[from];
+        gx[to] += w * st.globe.x[from]; gy[to] += w * st.globe.y[from]; gz[to] += w * st.globe.z[from];
+        sw[to] += w;
+      }
+      var g = st.globe;
+      for (var i = 0; i < n; i++) {
+        if (!isNew[i]) continue;
+        var uid = st.uids[i];
+        var angle = i * GOLDEN_ANGLE;
+        var ox = Math.cos(angle) * PLACE_OFFSET, oy = Math.sin(angle) * PLACE_OFFSET;
+        var p = explicit[uid];
+        if (p && isFinite(p.x) && isFinite(p.y)) {
+          st.x[i] = Math.max(-1, Math.min(1, p.x));
+          st.y[i] = Math.max(-1, Math.min(1, p.y));
+        } else if (sw[i] > 0) {
+          st.x[i] = sx[i] / sw[i] + ox;
+          st.y[i] = sy[i] / sw[i] + oy;
+        } else {
+          st.x[i] = ox;
+          st.y[i] = oy;
+        }
+        st.px[i] = st.x[i]; st.py[i] = st.y[i];
+        var q = explicitGlobe[uid];
+        if (q && isFinite(q.x) && isFinite(q.y) && isFinite(q.z)) {
+          g.x[i] = q.x; g.y[i] = q.y; g.z[i] = q.z;
+        } else if (sw[i] > 0) {
+          g.x[i] = gx[i] / sw[i] + ox; g.y[i] = gy[i] / sw[i] + oy; g.z[i] = gz[i] / sw[i];
+        } else {
+          g.x[i] = ox; g.y[i] = oy; g.z[i] = UNIT_RADIUS;
+        }
+        // Back onto the sphere: a mean of unit vectors lies inside it, and a
+        // mean that cancels out to the origin falls back to the front.
+        projectToSphere(g, i);
+        g.px[i] = g.x[i]; g.py[i] = g.y[i]; g.pz[i] = g.z[i];
+      }
+    }
+
+    // The lifecycle an update lands in ([F API.14]). A graph never started
+    // is rebuilt as load() would build it; one that has started carries its
+    // layout on and keeps going — a converged one runs again to a new
+    // convergence, a paused one stays paused, a forced one becomes a plain
+    // run (its waiver belonged to the convergence the update just undid).
+    function stateAfterUpdate(before) {
+      if (world.state.count === 0) return 'empty';
+      if (before === 'running_paused' || before === 'forced_paused') return 'running_paused';
+      return 'running';
+    }
+
+    function update(patch) {
+      log('api', 'update()', patch);
+      if (state === 'destroyed') return refuse('update');
+      if (!isPlainObject(patch)) return false;
+      var data = ensureOwnData();
+      var delta = applyPatch(data, patch);
+      if (!delta) return false;
+
+      // Metadata only: the graph the physics sees is unchanged, so nothing
+      // is rebuilt and nothing restarts — the nodes' `m` is replaced in place
+      // and the labels, which may read it, are recomputed. Open cards keep
+      // the content they were filled with; the next one opened reads the new.
+      // The edited dataset becomes the one the instance holds, so the next
+      // update() — and a maxEdgesPerNode rebuild — start from it.
+      var built = {
+        nodes: data.nodes,
+        edges: Array.from(data.edges.values()),
+        positions: data.positions,
+        globePositions: data.globePositions
+      };
+      data.built = built;
+      world.rawData = built;
+
+      if (!delta.structural) {
+        delta.retagged.forEach(function (uid) {
+          var nid = world.state.uidToNid.get(uid);
+          var entry = data.nodes[uid];
+          if (nid !== undefined) world.state.metadata[nid] = entry && entry.m != null ? entry.m : null;
+        });
+        world.labels = computeLabels(world.state, labelHandler, priorityHandler, warn);
+        needsRedraw = true;
+        return true;
+      }
+
+      var before = state;
+      var carry = before !== 'empty' && before !== 'loaded';
+      var oldState = world.state;
+
+      // Pin and hover survive by uid. Released first only if their node is
+      // going, and before the swap, while the outgoing state can still name it.
+      var pinnedUid = pinnedNid === -1 ? null : oldState.uids[pinnedNid];
+      if (pinnedUid !== null && !data.nodes[pinnedUid]) { unpin('update', null); pinnedUid = null; }
+      if (pinnedUid !== null && delta.removed.has(pinnedUid)) { unpin('update', null); pinnedUid = null; }
+      var hoveredUid = hoveredNid === -1 ? null : oldState.uids[hoveredNid];
+      if (hoveredUid !== null && (!data.nodes[hoveredUid] || delta.removed.has(hoveredUid))) {
+        clearHover('update', null);
+        hoveredUid = null;
+      }
+
+      world.state = buildGraphState(
+        built.nodes, built.edges, built.positions, config.maxEdgesPerNode,
+        built.globePositions, warn
+      );
+      var st = world.state;
+
+      // A new graph in every sense the counters care about: its own hash,
+      // no record, no steps banked, both budgets fresh (resetLayout()).
+      graphHash = null;
+      dataMaxFrames = 0;
+      baseFrameCount = 0;
+      bestFrameCount = 0;
+      world.labels = computeLabels(st, labelHandler, priorityHandler, warn);
+
+      resetLayout(carry ? function () {
+        var carried = new Uint8Array(st.count);
+        for (var i = 0; i < st.count; i++) {
+          var uid = st.uids[i];
+          if (delta.added.has(uid)) continue;
+          var o = oldState.uidToNid.get(uid);
+          if (o === undefined) continue;
+          carried[i] = 1;
+          st.x[i] = oldState.x[o]; st.y[i] = oldState.y[o];
+          st.vx[i] = oldState.vx[o]; st.vy[i] = oldState.vy[o];
+          st.px[i] = oldState.px[o]; st.py[i] = oldState.py[o];
+          var g = st.globe, og = oldState.globe;
+          g.x[i] = og.x[o]; g.y[i] = og.y[o]; g.z[i] = og.z[o];
+          g.vx[i] = og.vx[o]; g.vy[i] = og.vy[o]; g.vz[i] = og.vz[o];
+          g.px[i] = og.px[o]; g.py[i] = og.py[o]; g.pz[i] = og.pz[o];
+        }
+        placeNewNodes(st, carried, delta.added,
+          isPlainObject(patch.positions) ? patch.positions : {},
+          isPlainObject(patch.globePositions) ? patch.globePositions : {});
+      } : null);
+
+      // Re-point what survived at its new index. The pinned card keeps its
+      // content (the node is the same node) and is re-anchored on the next
+      // drawn frame; the hover card follows the cursor and needs nothing.
+      pinnedNid = pinnedUid === null ? -1 : st.uidToNid.get(pinnedUid);
+      pinnedX = -1; pinnedY = -1;
+      renderer.setPinned(pinnedNid);
+      hoveredNid = hoveredUid === null ? -1 : st.uidToNid.get(hoveredUid);
+      renderer.setHighlighted(hoveredNid !== -1 && hoverShown ? hoveredNid : -1);
+      needsRedraw = true;
+
+      syncStatsReadout();
+      if (searchBar) searchBar.refresh();
+
+      if (!carry) {
+        // What load() does after its rebuild, minus the handlers and record
+        // it takes from the host: this is the same dataset, edited.
+        var next = stateAfterRebuild();
+        if (next === 'settled') settleRebuilt();
+        setViewMode(next === 'settled' ? 'proximity' : 'relations');
+        setState(next, true);
+      } else {
+        var after = stateAfterUpdate(before);
+        if (after === state) {
+          // running -> running, running_paused -> running_paused: no
+          // transition to report, but a paused layout's reading describes
+          // positions that just changed, and resetLayout() dropped it.
+          ensureView();
+          if (viewModeToggle) viewModeToggle.sync(isStoppedState());
+        } else {
+          setState(after);
+        }
+      }
+      return true;
+    }
+
     function load(data, loadOptions) {
       log('api', 'load()', {
         nodes: data && data.nodes ? Object.keys(data.nodes).length : 0,
@@ -5762,22 +7257,28 @@
       pinHandler = typeof loadOptions.onNodePin === 'function' ? loadOptions.onNodePin : hoverHandler;
       settleHandler = typeof loadOptions.onSettle === 'function' ? loadOptions.onSettle : null;
       pauseHandler = typeof loadOptions.onPause === 'function' ? loadOptions.onPause : null;
+      labelHandler = typeof loadOptions.nodeLabel === 'function' ? loadOptions.nodeLabel : null;
+      priorityHandler = typeof loadOptions.nodePriority === 'function' ? loadOptions.nodePriority : null;
       if (loadOptions.config) {
         // Merged directly rather than through updateConfig(), which would
         // rebuild the graph from the *old* data on a maxEdgesPerNode change,
         // moments before rebuildState() below rebuilds it from the new. The
         // chrome still has to be reconciled, since the patch may carry show*
         // flags ([D Config.3]).
-        deepMerge(config, loadOptions.config);
+        mergeConfigPatch(config, loadOptions.config, warn);
+        syncThemeClass();
         applyChrome();
         if (viewModeToggle) viewModeToggle.sync(isStoppedState());
+        if (geometryToggle) geometryToggle.sync();
+        if (labelsToggle) labelsToggle.sync();
         if (debugToggle) debugToggle.sync();
       }
       // Sanitized here, once per dataset, before the rebuild that reads it:
       // this is the one call that brings a new value in, and warning about a
       // bad one belongs to the moment it arrives rather than to every later
       // rebuild of the same graph ([F Data.4]).
-      dataMaxFrames = readMaxFrames(data);
+      dataMaxFrames = readMaxFrames(data, warn);
+      dataSettled = !(data && data.settled === false);
       // The camera is not touched here either ([D Interact.2]): rebuildState()
       // rebases the reference zoom through restart(), and where the user was
       // looking survives the new data as it survives everything else.
@@ -5890,7 +7391,8 @@
       // `undefined` and throw. Nothing to merge is a legitimate no-op, not an
       // error.
       partial = partial || {};
-      deepMerge(config, partial);
+      mergeConfigPatch(config, partial, warn);
+      if (partial.theme !== undefined) syncThemeClass();
 
       // Independent tests, not a chain: as an `else if` ladder a patch
       // carrying two of these applied only the first, so
@@ -5939,7 +7441,9 @@
         // it, so changing it rebuilds rather than repaints — the one knob in
         // the Proximity group that costs O(n + P).
         if (partial.proximityMaxDistance !== undefined ||
-            partial.globeProximityMaxDistance !== undefined) world.view = null;
+            partial.globeProximityMaxDistance !== undefined ||
+            partial.proximityRadius !== undefined ||
+            partial.proximityNeighbors !== undefined) world.view = null;
         // And the geometry decides *which* pairs the same radius admits, so a
         // cached reading belongs to the geometry that produced it. Cheap to
         // drop: the readings are only ever offered while stopped, so this is
@@ -5971,6 +7475,7 @@
       applyChrome();
       if (viewModeToggle) viewModeToggle.sync(isStoppedState());
       if (geometryToggle) geometryToggle.sync();
+      if (labelsToggle) labelsToggle.sync();
       if (debugToggle) debugToggle.sync();
       // The panel binds its inputs to config once, at construction, so any
       // change arriving from elsewhere — the host's own updateConfig(), the
@@ -6009,6 +7514,7 @@
       if (debugPanel) { debugPanel.destroy(); debugPanel = null; }
       if (viewModeToggle) { viewModeToggle.destroy(); viewModeToggle = null; }
       if (geometryToggle) { geometryToggle.destroy(); geometryToggle = null; }
+      if (labelsToggle) { labelsToggle.destroy(); labelsToggle = null; }
       if (searchBar) { searchBar.destroy(); searchBar = null; }
       if (debugToggle) { debugToggle.destroy(); debugToggle = null; }
       if (simControls) { simControls.destroy(); simControls = null; }
@@ -6023,11 +7529,13 @@
       // them). Nothing of this instance should survive on that element.
       container.style.position = hostPosition;
       container.style.overflow = hostOverflow;
+      if (themeClass) container.classList.remove(themeClass);
       setState('destroyed');
     }
 
     return {
       load: load,
+      update: update,
       restart: restartAndStop,
       start: start,
       pause: pause,
@@ -6050,21 +7558,44 @@
       // `hover()` is traced like the rest despite the canvas hover not being
       // ([D Config.7]): what that rule keeps out of the log is an event
       // firing at cursor rate, and a host calling this is not one.
-      pin: function (uid) {
-        log('api', 'pin()', uid);
-        return pinByUid(uid);
+      // `options.autoRotate` opts a host into the turn the search list's
+      // pick makes ([D Globe.12]): off by default, since a host placing a pin
+      // may have its own reasons for where the view is ([D API.12]).
+      // The four node verbs are refused on a destroyed instance like every
+      // other verb: the cards, the renderer and the listeners they would act
+      // on have been torn down, and a `true` from them would be a lie.
+      pin: function (uid, options) {
+        log('api', 'pin()', options ? { uid: uid, options: options } : uid);
+        if (state === 'destroyed') return refuse('pin');
+        var pinned = pinByUid(uid, 'api');
+        if (pinned && options && options.autoRotate) revealOnGlobe(uid);
+        return pinned;
       },
       unpin: function () {
         log('api', 'unpin()');
-        return unpin();
+        if (state === 'destroyed') return refuse('unpin');
+        return unpin('api', null);
       },
       hover: function (uid) {
         log('api', 'hover()', uid);
-        return hoverByUid(uid);
+        if (state === 'destroyed') return refuse('hover');
+        return hoverByUid(uid, 'api');
       },
       unhover: function () {
         log('api', 'unhover()');
-        return endHover();
+        if (state === 'destroyed') return refuse('unhover');
+        return endHover('api');
+      },
+      // Which node each card is about, by uid, or null ([F API.12]). The
+      // hovered one even when the host prevented its card ([F API.13]). Read
+      // back rather than reconstructed: a pin placed by a click or the search
+      // list never passed through host code, and a host keeping its own
+      // selection UI has to be able to ask. Ungated, like the other getters.
+      getPinned: function () {
+        return pinnedNid === -1 ? null : world.state.uids[pinnedNid];
+      },
+      getHovered: function () {
+        return hoveredNid === -1 ? null : world.state.uids[hoveredNid];
       },
       destroy: destroy,
       // The layout as it stands, keyed by uid and shaped exactly like
@@ -6155,8 +7686,8 @@
   // requiring this file server-side (SSR, tooling) is safe until create() is
   // actually called, which is browser-only.
   if (typeof module === 'object' && module && module.exports) {
-    module.exports = { create: create };
+    module.exports = { create: create, themes: publicThemes(), defaults: publicDefaults() };
   } else {
-    global.Nodino = { create: create };
+    global.Nodino = { create: create, themes: publicThemes(), defaults: publicDefaults() };
   }
 })(typeof window !== 'undefined' ? window : globalThis);
