@@ -45,6 +45,13 @@ for (const [name, Nodino] of builds) {
       assert.equal(goldenHash(Nodino), GOLDEN);
     });
 
+    // The screen's density changes how sharply a frame is painted, never what
+    // is computed ([D Render.7]): a phone and a desktop lay out alike.
+    it('the reference layout does not depend on devicePixelRatio', () => {
+      global.devicePixelRatio = 3;
+      try { assert.equal(goldenHash(Nodino), GOLDEN); } finally { global.devicePixelRatio = 1; }
+    });
+
     it('the same input gives the same layout, bit for bit', () => {
       assert.deepEqual(layout(Nodino, testGraph(), 80), layout(Nodino, testGraph(), 80));
     });

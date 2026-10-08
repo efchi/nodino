@@ -35,7 +35,7 @@
 
   // Printed by create()'s startup banner. Bumped together with package.json's
   // version at release.
-  var VERSION = '2.4.12';
+  var VERSION = '2.4.13';
 
   var DEFAULT_CONFIG = {
     debug: false,
@@ -2251,6 +2251,13 @@
 
   function createRenderer(canvas, world, config) {
     var ctx = canvas.getContext('2d');
+    // The viewport in CSS pixels — what layout, camera, hit-testing and the
+    // label grid all reason in — kept apart from the canvas's backing store,
+    // which is `pixelRatio` times larger ([D Render.7]). Sizing the bitmap
+    // in CSS pixels, as it once was, makes the browser upscale it on any
+    // high-density screen: a phone at 3x showed every node, edge and label
+    // blurred, at every zoom, since the loss happens after drawing.
+    var viewW = 1, viewH = 1, pixelRatio = 1;
     // `rot` is the world→camera rotation, row-major 3x3, and it is the only
     // piece of camera state the plane never touches. A matrix rather than a
     // quaternion because every frame needs the matrix and no frame needs to
@@ -2723,15 +2730,31 @@
       ];
     }
 
+    // Read as a global rather than off `window` so the stub DOM of the tests
+    // and any host without one fall through to 1 instead of throwing.
+    function readPixelRatio() {
+      var r = typeof devicePixelRatio === 'number' ? devicePixelRatio : 1;
+      return r > 0 && isFinite(r) ? r : 1;
+    }
+
+    // The ratio can change with no change of size — the window dragged to a
+    // screen of another density — which the ResizeObserver never reports.
+    function pixelRatioChanged() {
+      return readPixelRatio() !== pixelRatio;
+    }
+
     function computeBaseZoom(worldRadius) {
-      var size = Math.min(canvas.width, canvas.height) || 600;
+      var size = Math.min(viewW, viewH) || 600;
       return worldRadius > 0 ? (size * 0.45) / worldRadius : 1;
     }
 
     function resize() {
       var rect = canvas.parentElement.getBoundingClientRect();
-      canvas.width = Math.max(1, Math.round(rect.width));
-      canvas.height = Math.max(1, Math.round(rect.height));
+      viewW = Math.max(1, Math.round(rect.width));
+      viewH = Math.max(1, Math.round(rect.height));
+      pixelRatio = readPixelRatio();
+      canvas.width = Math.max(1, Math.round(viewW * pixelRatio));
+      canvas.height = Math.max(1, Math.round(viewH * pixelRatio));
       var previousBase = baseZoom;
       baseZoom = computeBaseZoom(world.perimeterRadius);
       // Preserve how far the user had zoomed relative to the fitted view.
@@ -2749,7 +2772,7 @@
     // gets a canvas with nothing along its top edge, and centering below a
     // bar that was never drawn would just be off-center for no reason.
     function centerY() {
-      var half = canvas.height / 2;
+      var half = viewH / 2;
       return (config.showSearch || config.showGeometryToggle || config.showViewModeToggle ||
               config.showLabelsToggle)
         ? half + TOP_CHROME_OFFSET
@@ -2758,14 +2781,14 @@
 
     function worldToScreen(x, y) {
       return [
-        canvas.width / 2 + (x - camera.x) * camera.zoom,
+        viewW / 2 + (x - camera.x) * camera.zoom,
         centerY() + (y - camera.y) * camera.zoom
       ];
     }
 
     function screenToWorld(sx, sy) {
       return [
-        camera.x + (sx - canvas.width / 2) / camera.zoom,
+        camera.x + (sx - viewW / 2) / camera.zoom,
         camera.y + (sy - centerY()) / camera.zoom
       ];
     }
@@ -2797,7 +2820,7 @@
 
     function visibleBounds() {
       var topLeft = screenToWorld(0, 0);
-      var bottomRight = screenToWorld(canvas.width, canvas.height);
+      var bottomRight = screenToWorld(viewW, viewH);
       return { minX: topLeft[0], minY: topLeft[1], maxX: bottomRight[0], maxY: bottomRight[1] };
     }
 
@@ -2897,7 +2920,7 @@
         labelNids = new Int32Array(maxCount);
         labelAlpha = new Float64Array(maxCount);
       }
-      var W = canvas.width, H = canvas.height;
+      var W = viewW, H = viewH;
       var cols = Math.ceil(W / LABEL_CELL), rows = Math.ceil(H / LABEL_CELL);
       var cellCount = cols * rows;
       while (labelGrid.length < cellCount) labelGrid.push([]);
@@ -3001,6 +3024,14 @@
     }
 
     function draw(status) {
+      // Set on every frame rather than once in resize(): assigning
+      // canvas.width resets the transform, so this keeps every draw in CSS
+      // pixels whatever happened in between. Per axis, from the bitmap's
+      // actual size rather than the bare ratio: at a fractional ratio (1.25,
+      // a scaled Windows desktop) the rounded bitmap is not exactly
+      // viewW × ratio, and the bare ratio would leave a sliver of the last
+      // column or row unpainted. At ratio 1 this is the identity, as before.
+      ctx.setTransform(canvas.width / viewW, 0, 0, canvas.height / viewH, 0, 0);
       var state = world.state;
       var style = config.style;
       var hasPerimeter = world.perimeterRadius > 0;
@@ -3057,14 +3088,14 @@
       // Outside the boundary circle is filled first, with whatever outsideFill
       // was resolved to above.
       ctx.fillStyle = outsideFill;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillRect(0, 0, viewW, viewH);
       ctx.fillStyle = insideFill;
       if (hasPerimeter) {
         ctx.beginPath();
         ctx.arc(center[0], center[1], screenRadius, 0, Math.PI * 2);
         ctx.fill();
       } else {
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillRect(0, 0, viewW, viewH);
       }
 
       var view = world.view;
@@ -3112,7 +3143,7 @@
 
       // Screen transform inlined below: worldToScreen() returns a fresh array,
       // which at 10^4–10^5 edges per frame is more allocation than drawing.
-      var halfW = canvas.width / 2, halfH = centerY();
+      var halfW = viewW / 2, halfH = centerY();
       var zoom = camera.zoom, camX = camera.x, camY = camera.y;
 
       // The one line that switches geometry for everything below: on the
@@ -3514,8 +3545,8 @@
     function clampPan() {
       var radius = world.perimeterRadius;
       if (!(radius > 0) || !(camera.zoom > 0)) return;
-      var limitX = radius + PAN_SLACK * (canvas.width / 2) / camera.zoom;
-      var limitY = radius + PAN_SLACK * (canvas.height / 2) / camera.zoom;
+      var limitX = radius + PAN_SLACK * (viewW / 2) / camera.zoom;
+      var limitY = radius + PAN_SLACK * (viewH / 2) / camera.zoom;
       camera.x = Math.min(limitX, Math.max(-limitX, camera.x));
       camera.y = Math.min(limitY, Math.max(-limitY, camera.y));
     }
@@ -3523,6 +3554,7 @@
     return {
       draw: draw,
       resize: resize,
+      pixelRatioChanged: pixelRatioChanged,
       fitView: fitView,
       rebase: rebase,
       clampZoom: clampZoom,
@@ -6599,6 +6631,9 @@
       // and, worse, make the step count depend on how the two interleave.
       if (!backgroundTicker) {
         tick();
+        // Polled rather than watched: a matchMedia query per ratio would have
+        // to be re-armed on every change, and one comparison a frame is free.
+        if (renderer.pixelRatioChanged()) resize();
         // Cosmetic and camera-only ([Rsk Render.1]): the turn reads real
         // time, and never touches positions, so it cannot reach [F Det.1].
         if (renderer.stepCameraAnimation(performance.now())) needsRedraw = true;

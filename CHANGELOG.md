@@ -4,6 +4,12 @@ All notable changes to Nodino are listed here. The format follows [Keep a Change
 
 For how the library behaves *now*, read [`API-DOCS.md`](API-DOCS.md). This file only records what changed between versions.
 
+## 2.4.13 — 2026-10-08
+
+### Fixed
+
+- The canvas is drawn sharp on high-density screens (phones, Retina displays), where nodes, edges and labels looked blurred.
+
 ## 2.4.12 — 2026-10-03
 
 ### Added

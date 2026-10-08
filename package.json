@@ -1,6 +1,6 @@
 {
   "name": "@efchi/nodino",
-  "version": "2.4.12",
+  "version": "2.4.13",
   "description": "A deterministic, dependency-free 2D & 3D force-directed graph viewer for the browser.",
   "keywords": [
     "graph",
